@@ -404,6 +404,11 @@ async function start() {
   setInterval(pollTrips,    60_000);
   setInterval(pollAlerts,   5*60_000);
   setInterval(loadStatic,   24*60*60_000);
-  app.listen(PORT, () => console.log(`\n✓  http://localhost:${PORT}\n`));
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n✓ Server running on port ${PORT}\n`);
+  });
+
+  // app.listen(PORT, () => console.log(`\n✓  http://localhost:${PORT}\n`));
 }
 start().catch(e => { console.error('Fatal:', e); process.exit(1); });
