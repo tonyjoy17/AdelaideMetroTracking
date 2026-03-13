@@ -430,4 +430,3 @@ start().catch(e => {
   process.exit(1);
 });
 
-start().catch(e => { console.error('Fatal:', e); process.exit(1); });
