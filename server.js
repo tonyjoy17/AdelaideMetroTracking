@@ -395,20 +395,39 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({ staticLoaded:store.staticLoaded, gtfsVersion:store.gtfsVersion, lastUpdated:store.lastUpdated, errors:store.errors, counts:{ vehicles:store.vehicles.length, trips:Object.keys(store.trips).length, alerts:store.alerts.length, routes:Object.keys(store.routes).length, stops:Object.keys(store.stops).length } });
 });
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true,
+    staticLoaded: store.staticLoaded,
+    gtfsVersion: store.gtfsVersion,
+    lastUpdated: store.lastUpdated,
+    errors: store.errors
+  });
+});
 
 async function start() {
   console.log('Adelaide Metro Tracker v3');
-  await loadStatic();
-  await Promise.all([pollVehicles(), pollTrips(), pollAlerts()]);
-  setInterval(pollVehicles, 15_000);
-  setInterval(pollTrips,    60_000);
-  setInterval(pollAlerts,   5*60_000);
-  setInterval(loadStatic,   24*60*60_000);
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n✓ Server running on port ${PORT}\n`);
+    console.log(`✓ Server running on port ${PORT}`);
   });
 
-  // app.listen(PORT, () => console.log(`\n✓  http://localhost:${PORT}\n`));
+  try {
+    await loadStatic();
+    await Promise.all([pollVehicles(), pollTrips(), pollAlerts()]);
+  } catch (e) {
+    console.error('Initial data load failed:', e);
+  }
+
+  setInterval(() => pollVehicles().catch(err => console.error('pollVehicles', err)), 15_000);
+  setInterval(() => pollTrips().catch(err => console.error('pollTrips', err)), 60_000);
+  setInterval(() => pollAlerts().catch(err => console.error('pollAlerts', err)), 5 * 60_000);
+  setInterval(() => loadStatic().catch(err => console.error('loadStatic', err)), 24 * 60 * 60_000);
 }
+
+start().catch(e => {
+  console.error('Fatal:', e);
+  process.exit(1);
+});
+
 start().catch(e => { console.error('Fatal:', e); process.exit(1); });
