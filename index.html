@@ -152,11 +152,6 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 
 /* â”€â”€ SIDEBAR â”€â”€ */
 #sidebar{position:absolute;top:88px;left:12px;bottom:84px;width:var(--sidebar);z-index:50;background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(247,250,255,.88));border:1px solid rgba(255,255,255,.66);border-radius:26px;box-shadow:var(--sh2);display:flex;flex-direction:column;overflow:hidden}
-.stats-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px;border-bottom:1px solid var(--line);flex-shrink:0;background:linear-gradient(180deg, rgba(233,238,251,.82), rgba(255,255,255,.32))}
-.stat-box{padding:10px 10px;border:1px solid rgba(255,255,255,.7);border-radius:16px;background:rgba(255,255,255,.74);box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
-.stat-box:last-child{border-right:none}
-.stat-n{font-size:22px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
-.stat-l{font-size:9px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
 .sb-scroll{flex:1;overflow-y:auto}
 
 /* â”€â”€ VEHICLE LIST â”€â”€ */
@@ -523,9 +518,7 @@ body.theme-night .leaflet-container{background:#07111f}
   #sidebar.drawer-open ~ #tabbar{ opacity:0; pointer-events:none; transform:translateY(18px); }
 
   /* stats compact */
-  .stats-strip{ grid-template-columns:repeat(4,1fr); }
-  .stat-n{ font-size:16px; }
-  .stat-box{ padding:7px 8px; }
+  .stats-strip{ display:none; }
 
   /* detail panel — bottom sheet */
   #detail{
@@ -639,12 +632,6 @@ body.theme-night .leaflet-container{background:#07111f}
         <span class="drawer-tab-count" data-count="alerts">0</span>
       </button>
     </div>
-  </div>
-  <div class="stats-strip">
-    <div class="stat-box"><div class="stat-n" id="s-total" style="color:var(--ink)">—</div><div class="stat-l">Total</div></div>
-    <div class="stat-box"><div class="stat-n" id="s-moving" style="color:var(--ok)">—</div><div class="stat-l">Moving</div></div>
-    <div class="stat-box"><div class="stat-n" id="s-tram" style="color:var(--tram)">—</div><div class="stat-l">Trams</div></div>
-    <div class="stat-box"><div class="stat-n" id="s-train" style="color:var(--train)">—</div><div class="stat-l">Trains</div></div>
   </div>
   <div class="sb-scroll" id="sb-scroll">
     <div class="empty"><div class="empty-i">🚌</div><div class="empty-t">Loading vehicles...</div></div>
@@ -1171,12 +1158,6 @@ function renderSidebar() {
   Object.keys(ct).forEach(k => {
     document.querySelectorAll(`[data-count="${k}"]`).forEach(el => { el.textContent = ct[k]; });
   });
-
-  // Stats
-  document.getElementById('s-total').textContent  = S.vehicles.length;
-  document.getElementById('s-moving').textContent = S.vehicles.filter(v=>v.speed>0.5).length;
-  document.getElementById('s-tram').textContent   = ct.tram;
-  document.getElementById('s-train').textContent  = ct.train;
 
   const scroll = document.getElementById('sb-scroll');
   if (S.mode==='stop' && S.selectedStop) { renderStopBoard(scroll); return; }
