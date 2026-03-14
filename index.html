@@ -443,14 +443,14 @@ body.theme-night .leaflet-container{background:#07111f}
   #topbar{ position:fixed; top:10px; left:10px; right:10px; z-index:200; padding:0 10px; gap:7px; height:56px; border-radius:18px; }
   .tb-logo{ gap:7px; min-width:0; }
   .tb-icon{ width:32px; height:32px; border-radius:11px; }
-  .tb-name{ font-size:12px; letter-spacing:-.2px; }
+  .tb-name{ font-size:12px; letter-spacing:-.2px; max-width:92px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tb-sub{ display:none; }
   .tb-actions{ gap:6px; }
   .tb-toggle{ width:34px; height:34px; border-radius:12px; font-size:14px; }
   #planner-toggle{ display:none; }
-  .search-wrap{ min-width:0; }
-  .search-row{ height:38px; padding:0 12px; }
-  .search-row input{ font-size:12px; }
+  .search-wrap{ min-width:0; flex:1 1 auto; }
+  .search-row{ height:38px; padding:0 12px; min-width:0; width:100%; }
+  .search-row input{ font-size:12px; min-width:0; width:100%; }
   .live-pill span{ display:none; }
   .live-pill{ padding:6px 8px; border-radius:50%; }
 
