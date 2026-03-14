@@ -256,6 +256,23 @@ function getDepartureRowsForStop(stopId) {
   return results;
 }
 
+function adelaideNowParts() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Adelaide' }));
+  return now;
+}
+
+function serviceTimeToMillis(timeStr) {
+  if (!timeStr) return null;
+  const parts = String(timeStr).split(':').map(Number);
+  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
+  const [hh = 0, mm = 0, ss = 0] = parts;
+  const dt = adelaideNowParts();
+  const dayOffset = Math.floor(hh / 24);
+  dt.setDate(dt.getDate() + dayOffset);
+  dt.setHours(hh % 24, mm, ss, 0);
+  return dt.getTime();
+}
+
 function ensureShapesRawLoaded() {
   if (store.shapesRaw) return;
   store.shapesRaw = getZipText('shapes.txt') || '';
@@ -817,7 +834,87 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
   res.json({
     stopId,
     stopName: store.stops[stopId]?.name || stopId,
-    departures: departures.slice(0, 30),
+    departures,
+  });
+});
+
+app.get('/api/plan', (req, res) => {
+  const fromStopId = String(req.query.fromStopId || '').trim();
+  const toStopId = String(req.query.toStopId || '').trim();
+
+  if (!fromStopId || !toStopId) {
+    return res.status(400).json({ error: 'fromStopId and toStopId are required' });
+  }
+
+  if (fromStopId === toStopId) {
+    return res.json({
+      fromStopId,
+      toStopId,
+      fromStopName: store.stops[fromStopId]?.name || fromStopId,
+      toStopName: store.stops[toStopId]?.name || toStopId,
+      options: [],
+    });
+  }
+
+  const now = Date.now();
+  const options = [];
+
+  Object.entries(store.trips_map || {}).forEach(([tripId, trip]) => {
+    const stops = getStopTimesForTrip(tripId);
+    if (!stops.length) return;
+
+    const fromIdx = stops.findIndex(s => s.stopId === fromStopId);
+    const toIdx = stops.findIndex((s, i) => i > fromIdx && s.stopId === toStopId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const fromStop = stops[fromIdx];
+    const toStop = stops[toIdx];
+    const route = store.routes[trip.routeId] || {};
+    const tripUpdate = store.trips[tripId];
+    const fromRt = tripUpdate?.stopUpdates?.find(s => s.sequence === fromStop.seq || s.stopId === fromStopId);
+    const toRt = tripUpdate?.stopUpdates?.find(s => s.sequence === toStop.seq || s.stopId === toStopId);
+
+    const departureRealtime = fromRt?.arrivalTime || fromRt?.departureTime || null;
+    const arrivalRealtime = toRt?.arrivalTime || toRt?.departureTime || null;
+    const departureTs = departureRealtime ? new Date(departureRealtime).getTime() : serviceTimeToMillis(fromStop.t);
+    const arrivalTs = arrivalRealtime ? new Date(arrivalRealtime).getTime() : serviceTimeToMillis(toStop.t);
+
+    if (departureTs && departureTs < now - 60000) return;
+
+    const vehicle = store.vehicles.find(v => v.tripId === tripId);
+    options.push({
+      tripId,
+      routeId: trip.routeId || '',
+      routeShort: route.shortName || trip.routeId || '',
+      routeLong: route.longName || '',
+      routeType: route.type || 'bus',
+      headsign: trip.headsign || '',
+      fromStopId,
+      fromStopName: store.stops[fromStopId]?.name || fromStopId,
+      toStopId,
+      toStopName: store.stops[toStopId]?.name || toStopId,
+      departureScheduled: fromStop.t || null,
+      arrivalScheduled: toStop.t || null,
+      departureRealtime,
+      arrivalRealtime,
+      departureDelay: fromRt?.delay || 0,
+      arrivalDelay: toRt?.delay || 0,
+      departureTs: departureTs || null,
+      arrivalTs: arrivalTs || null,
+      stopsBetween: Math.max(0, toIdx - fromIdx - 1),
+      vehicleId: vehicle?.vehicleId || null,
+      occupancy: vehicle?.occupancy || null,
+    });
+  });
+
+  options.sort((a, b) => (a.departureTs || Number.MAX_SAFE_INTEGER) - (b.departureTs || Number.MAX_SAFE_INTEGER));
+
+  res.json({
+    fromStopId,
+    toStopId,
+    fromStopName: store.stops[fromStopId]?.name || fromStopId,
+    toStopName: store.stops[toStopId]?.name || toStopId,
+    options: options.slice(0, 20),
   });
 });
 
