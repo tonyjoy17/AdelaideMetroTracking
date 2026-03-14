@@ -166,8 +166,12 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 .vc-body{flex:1;min-width:0}
 .vc-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
 .vc-sub{display:flex;align-items:center;gap:4px;margin-top:2px;font-size:10px;color:var(--ink3);font-weight:500}
+.vc-meta{margin-top:4px;font-size:10px;color:var(--ink2);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vc-dot{width:2px;height:2px;border-radius:50%;background:var(--ink4)}
 .vc-occ{font-size:11px;margin-top:3px;display:flex;align-items:center;gap:4px;color:var(--ink3)}
+.vc-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.vc-btn{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);font-size:10px;font-weight:800;color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;transition:all .15s}
+.vc-btn:hover{background:var(--surface3);border-color:var(--line2)}
 .vc-right{flex-shrink:0;text-align:right}
 .vc-spd{font-family:var(--mono);font-size:12px;font-weight:500;line-height:1}
 .vc-bear{font-size:10px;color:var(--ink3);margin-top:2px}
@@ -437,7 +441,7 @@ body.theme-night .stop-dot{background:rgba(10,19,34,.92)}
 body.theme-night .leaflet-container{background:#07111f}
 
 @media(max-width:680px){
-  :root{ --peek:156px; --expanded:72dvh; --tabbar:58px; }
+  :root{ --peek:156px; --peek-follow:328px; --expanded:72dvh; --tabbar:58px; }
 
   /* topbar */
   #topbar{ position:fixed; top:10px; left:10px; right:10px; z-index:200; padding:0 10px; gap:7px; height:56px; border-radius:18px; }
@@ -524,6 +528,7 @@ body.theme-night .leaflet-container{background:#07111f}
   #detail{
     position:fixed; bottom:78px; left:10px; right:10px; width:auto;
     height:var(--expanded); top:auto;
+    --sheet-peek:var(--peek);
     border-left:none; border-top:1px solid var(--line);
     border-radius:20px 20px 0 0;
     box-shadow:0 -8px 40px rgba(0,0,0,.18);
@@ -531,7 +536,8 @@ body.theme-night .leaflet-container{background:#07111f}
     transition:transform .32s cubic-bezier(.22,1,.36,1);
     z-index:160;
   }
-  #detail.open{ transform:translateY(calc(var(--expanded) - var(--peek))); }
+  #detail.follow-compact{ --sheet-peek:var(--peek-follow); }
+  #detail.open{ transform:translateY(calc(var(--expanded) - var(--sheet-peek))); }
   #detail.open.expanded{ transform:translateY(0); }
 
   /* drag handle on detail */
@@ -731,7 +737,7 @@ function clearFilters() {
 function mobileShowFilteredList() {
   if (!isMobile()) return;
   const detail = document.getElementById('detail');
-  detail.classList.remove('open','expanded');
+  detail.classList.remove('open','expanded','follow-compact');
   mobDrawerOpen();
 }
 
@@ -779,7 +785,7 @@ function etaPill(realtimeIso, scheduledStr, delay) {
 }
 function etaPillFromDeparture(dep, keySeed='sched') {
   const targetTs = departureTs(dep);
-  const delayInfo = fmtDelay(dep.delay);
+  const delayInfo = fmtDelay(deriveDelaySeconds(dep));
   if (targetTs != null) {
     const mins = (targetTs - Date.now()) / 60000;
     const cd = fmtCountdown(mins);
@@ -849,6 +855,29 @@ function upcomingDeparturesOnly(departures) {
     return ts == null || ts >= now - 60000;
   });
 }
+function scheduledTimeTs(scheduledStr) {
+  if (!scheduledStr) return null;
+  const base = adelaideNowDate();
+  const parts = String(scheduledStr).split(':').map(n => Number(n));
+  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
+  const [hh=0, mm=0, ss=0] = parts;
+  const when = new Date(base);
+  const dayOffset = Math.floor(hh / 24);
+  when.setDate(when.getDate() + dayOffset);
+  when.setHours(hh % 24, mm, ss, 0);
+  return when.getTime();
+}
+function deriveDelaySeconds(item) {
+  const explicit = Number(item?.delay || 0);
+  if (explicit) return explicit;
+  const realtimeIso = item?.realtimeTime || item?.arrivalTime || item?.departureTime || null;
+  const scheduledStr = item?.scheduledTime || null;
+  if (!realtimeIso || !scheduledStr) return 0;
+  const realtimeTs = new Date(realtimeIso).getTime();
+  const scheduledTs = scheduledTimeTs(scheduledStr);
+  if (Number.isNaN(realtimeTs) || scheduledTs == null) return 0;
+  return Math.round((realtimeTs - scheduledTs) / 1000);
+}
 const fmtDelay = sec => {
   if (!sec) return null;
   const m = Math.round(sec/60);
@@ -868,6 +897,38 @@ const CROWD = {
   5:{label:'Full',            emoji:'🔴',pct:100, color:'var(--crowd-high)'},
   6:{label:'Not accepting',   emoji:'⛔',pct:100, color:'var(--crowd-high)'},
 };
+
+function firstDelayedStop(upcomingStops) {
+  if (!upcomingStops?.length) return null;
+  return upcomingStops.find(s => Math.abs(deriveDelaySeconds(s)) > 0) || null;
+}
+
+function vehicleToward(v) {
+  const lastStopName = v?.upcomingStops?.[v.upcomingStops.length - 1]?.stopName;
+  const fallback = v?.headsign || '';
+  const toward = lastStopName || fallback;
+  return toward ? `Toward ${toward}` : '';
+}
+
+function nextStopForVehicle(v) {
+  const stop = v?.upcomingStops?.find(s => s?.stopId && s?.lat != null && s?.lon != null);
+  if (!stop) return null;
+  return {
+    stopId: stop.stopId,
+    name: stop.stopName || stop.name || 'Next stop',
+    code: stop.stopCode || stop.code || '',
+    lat: stop.lat,
+    lon: stop.lon
+  };
+}
+
+function openVehicleNextStop(vehicleId, ev) {
+  ev?.stopPropagation?.();
+  const v = S.vehicles.find(x => x.vehicleId === vehicleId);
+  const stop = nextStopForVehicle(v);
+  if (!stop) return;
+  focusStopOnMap(stop);
+}
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MAP
@@ -993,6 +1054,7 @@ function resetView() {
   S.followMode=false;
   document.getElementById('mc-follow').classList.remove('on');
   document.getElementById('dp-follow').classList.remove('on');
+  document.getElementById('detail').classList.remove('follow-compact');
   if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
   syncControlState();
   map.setView(ADELAIDE,12,{animate:true});
@@ -1018,7 +1080,7 @@ function focusStopOnMap(stop) {
   map.panTo([stop.lat,stop.lon], {animate:true, duration:.45});
   if (isMobile()) {
     mobDrawerClose();
-    document.getElementById('detail').classList.remove('open','expanded');
+    document.getElementById('detail').classList.remove('open','expanded','follow-compact');
   }
 }
 function restoreFullMapFromNearby() {
@@ -1032,12 +1094,19 @@ function toggleFollow() {
   S.followMode = !S.followMode;
   document.getElementById('mc-follow').classList.toggle('on', S.followMode);
   document.getElementById('dp-follow').classList.toggle('on', S.followMode);
+  const detail = document.getElementById('detail');
   if (S.followMode && S.selectedId) {
     const v = S.vehicles.find(x=>x.vehicleId===S.selectedId);
     if (v) map.setView([v.lat, v.lon], Math.max(map.getZoom(), 15), {animate:true});
+    if (isMobile()) {
+      detail.classList.add('open','follow-compact');
+      detail.classList.remove('expanded');
+      mobDrawerClose();
+    }
   } else if (!S.followMode) {
     // Zoom out slightly when leaving follow mode so context is visible
     if (map.getZoom() > 15) map.setZoom(14, {animate:true});
+    detail.classList.remove('follow-compact');
   }
   // Immediately re-render markers to apply/remove fade
   updateMarkers();
@@ -1223,12 +1292,16 @@ function renderVList(scroll) {
       const spd=v.speed>0.5?`${Math.round(v.speed)} km/h`:'Stopped';
       const spdC=v.speed>0.5?'var(--ok)':'var(--stopped)';
       const occ = v.routeType==='tram'&&v.occupancy ? `<div class="vc-occ">${v.occupancy.emoji} <span>${v.occupancy.label}</span></div>` : '';
+      const toward = vehicleToward(v);
+      const nextStop = nextStopForVehicle(v);
       html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}')" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
         <div class="vc-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
         <div class="vc-body">
           <div class="vc-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
           <div class="vc-sub"><span>Veh ${v.vehicleId}</span><div class="vc-dot"></div><span>${v.headsign||v.routeShort||'—'}</span></div>
+          ${toward?`<div class="vc-meta">${toward}</div>`:''}
           ${occ}
+          ${nextStop?`<div class="vc-actions"><button class="vc-btn" onclick="openVehicleNextStop('${v.vehicleId}', event)">Next stop</button></div>`:''}
         </div>
         <div class="vc-right">
           <div class="vc-spd" style="color:${spdC}">${spd}</div>
@@ -1335,7 +1408,7 @@ function openPlanner() {
   S.mode = 'planner';
   S.selectedId = null;
   S.selectedStop = null;
-  document.getElementById('detail').classList.remove('open','expanded');
+  document.getElementById('detail').classList.remove('open','expanded','follow-compact');
   renderSidebar();
   syncControlState();
   if (isMobile()) mobDrawerOpen();
@@ -1494,9 +1567,10 @@ function closeDetail() {
   if (S.followMode) {
     S.followMode = false;
     document.getElementById('mc-follow').classList.remove('on');
+    document.getElementById('dp-follow').classList.remove('on');
   }
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
-  document.getElementById('detail').classList.remove('open','expanded');
+  document.getElementById('detail').classList.remove('open','expanded','follow-compact');
   renderSidebar(); updateMarkers();
   syncControlState();
 }
@@ -1517,7 +1591,7 @@ function renderDetailContent(v) {
   const typeC={tram:{l:'TRAM',bg:'var(--tram-lt)',col:'var(--tram)',brd:'var(--tram-mid)'},train:{l:'TRAIN',bg:'var(--train-lt)',col:'var(--train)',brd:'var(--train-mid)'},bus:{l:'BUS',bg:'var(--bus-lt)',col:'var(--bus)',brd:'var(--bus-mid)'}}[v.routeType]||{l:'BUS',bg:'var(--bus-lt)',col:'var(--bus)',brd:'var(--bus-mid)'};
   const isMoving=v.speed>0.5;
   const stsC=isMoving?{l:'In Transit',bg:'var(--ok-lt)',col:'var(--ok)'}:{l:'Stopped',bg:'var(--stopped-lt)',col:'var(--stopped)'};
-  const firstStop=v.upcomingStops?.[0], delayInfo=firstStop?fmtDelay(firstStop.delay):null;
+  const delayedStop=firstDelayedStop(v.upcomingStops), delayInfo=delayedStop?fmtDelay(deriveDelaySeconds(delayedStop)):null;
 
   // Crowd card
   const occInfo = v.occupancy ? (CROWD[v.occupancy.status]||{label:'Unknown',emoji:'⬜',pct:0,color:'var(--ink3)'}) : null;
@@ -1539,6 +1613,7 @@ function renderDetailContent(v) {
         <div class="d-chips">
           <span class="d-chip" style="background:${typeC.bg};color:${typeC.col};border-color:${typeC.brd}">${typeC.l}</span>
           <span class="d-chip" style="background:${stsC.bg};color:${stsC.col};border-color:transparent">${stsC.l}</span>
+          ${delayInfo?.cls==='late'?`<span class="d-chip" style="background:var(--danger-lt);color:${delayInfo.color};border-color:transparent">Delayed ${delayInfo.label}</span>`:''}
           ${v.alerts?.length?'<span class="d-chip" style="background:var(--danger-lt);color:var(--danger);border-color:transparent">⚠ Alert</span>':''}
         </div>
       </div>
@@ -1602,7 +1677,7 @@ function renderStopTimelineRows(el, upcoming, type, hasRT) {
   upcoming.forEach((s, i) => {
     const isNext = i === 0;
     const rtIso  = s.arrivalTime || s.departureTime;
-    const delay  = fmtDelay(s.delay);
+    const delay  = fmtDelay(deriveDelaySeconds(s));
     const mins   = minsUntil(rtIso);
     const cd     = mins !== null ? fmtCountdown(mins) : null;
     let timeHtml = '';
@@ -1777,9 +1852,9 @@ async function fetchVehicles() {
           S.prevFirstStopId = sv.upcomingStops?.[0]?.stopId;
 
           // Update delay KPI from first upcoming stop
-          const ns = sv.upcomingStops?.[0];
-          if (ns?.delay) {
-            const d = fmtDelay(ns.delay);
+          const ns = firstDelayedStop(sv.upcomingStops);
+          if (ns) {
+            const d = fmtDelay(deriveDelaySeconds(ns));
             const kd = document.getElementById('kv-dly');
             if (kd && d) { kd.textContent=d.label; kd.style.color=d.color; kd.style.fontSize='13px'; }
           }
@@ -1839,7 +1914,10 @@ function mobileOpenDetail() {
   if (!isMobile()) return;
   mobDrawerClose();
   const detail = document.getElementById('detail');
-  detail.classList.add('expanded');
+  detail.classList.add('open');
+  detail.classList.toggle('follow-compact', !!S.followMode);
+  if (S.followMode) detail.classList.remove('expanded');
+  else detail.classList.add('expanded');
   syncControlState();
 }
 
