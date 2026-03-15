@@ -1,106 +1,91 @@
 # Adelaide Metro Tracker
 
-Real-time transit tracker for Adelaide Metro — trams, trains, and buses.
-Built with Node.js backend + vanilla HTML/JS frontend. Ready for Capacitor mobile conversion.
+Real-time Adelaide Metro tracker with a Node.js backend and a single-file frontend.
 
----
+## Runtime model
 
-## Quick Start
+The app server no longer downloads `google_transit.zip` at runtime.
+
+Instead:
+- static GTFS is prepared ahead of time into local JSON files under [`data/static/current`](/c:/Projects/Adelaide%20Metro/data/static/current)
+- `server.js` reads those prepared files on startup
+- realtime feeds are still polled directly from Adelaide Metro
+- the server reloads local static data daily at `1:05 AM` Adelaide time
+
+This keeps the heavy GTFS ZIP download out of the live app server.
+
+## Prepared static files
+
+The runtime currently uses only:
+- `routes.json`
+- `trips.json`
+- `stops.json`
+- `stop_times_compact.json`
+- `shapes.json`
+- `manifest.json`
+
+These are generated from:
+- `routes.txt`
+- `trips.txt`
+- `stops.txt`
+- `stop_times.txt`
+- `shapes.txt`
+
+## Quick start
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Start the server
 npm start
-
-# 3. Open in browser
-open http://localhost:3000
 ```
 
----
+Then open `http://localhost:3000`.
 
-## How It Works
+## Static data workflow
 
-```
-Browser/App
-    │
-    ▼
-Node.js Server (server.js)  ←── polls every 15s
-    │
-    ├── /api/vehicles   — enriched vehicle positions
-    ├── /api/alerts     — service disruptions
-    ├── /api/trips/:id  — stop ETAs for a trip
-    ├── /api/shape/:id  — route polyline for map
-    └── /api/status     — feed health check
-    │
-    ▼
-Adelaide Metro GTFS-RT APIs
-    ├── vehicle_positions/debug   (15s)
-    ├── trip_updates/debug        (60s)
-    ├── service_alerts/debug      (5min)
-    └── static/latest/google_transit.zip  (daily version check)
+### Option 1: build from an extracted GTFS folder
+
+```bash
+npm run build:static -- --input-dir C:\path\to\google_transit --version 2026-03-14
 ```
 
----
+### Option 2: build from a local ZIP file
+
+```bash
+npm run build:static -- --zip C:\path\to\google_transit.zip --version 2026-03-14
+```
+
+### Option 3: external updater checks `version.txt` and downloads only when changed
+
+This is intended for an external machine, cron worker, or CI job, not the live app server.
+
+```bash
+npm run sync:static
+```
+
+That script:
+1. checks `https://gtfs.adelaidemetro.com.au/v1/static/latest/version.txt`
+2. compares it with the local prepared dataset version
+3. downloads `google_transit.zip` only if the version changed
+4. rebuilds the prepared files in `data/static/current`
 
 ## Files
 
-| File         | Purpose                                      |
-|--------------|----------------------------------------------|
-| `server.js`  | Node.js proxy — parses feeds, serves API     |
-| `index.html` | Full web app — map, sidebar, detail panel    |
-| `package.json` | Dependencies                               |
+| File | Purpose |
+|---|---|
+| [`server.js`](/c:/Projects/Adelaide%20Metro/server.js) | Express server and realtime polling |
+| [`index.html`](/c:/Projects/Adelaide%20Metro/index.html) | Full frontend UI |
+| [`scripts/build-static-data.js`](/c:/Projects/Adelaide%20Metro/scripts/build-static-data.js) | Build prepared runtime data from local GTFS input |
+| [`scripts/sync-static-feed.js`](/c:/Projects/Adelaide%20Metro/scripts/sync-static-feed.js) | External updater that checks `version.txt` and pulls ZIP only when needed |
+| [`scripts/lib/static-data.js`](/c:/Projects/Adelaide%20Metro/scripts/lib/static-data.js) | Shared static-data preparation logic |
+| [`data/static/current`](/c:/Projects/Adelaide%20Metro/data/static/current) | Prepared local runtime dataset |
 
----
+## API sources
 
-## Features
+Realtime only:
+- `v1/realtime/vehicle_positions`
+- `v1/realtime/trip_updates`
+- `v1/realtime/service_alerts`
 
-- **Live map** — all 53+ vehicles plotted with direction arrows
-- **Filter by type** — Tram / Train / Bus tabs with live counts
-- **Search** — by route number, route name, or vehicle ID
-- **Select any vehicle** — tap in list or tap on map
-- **Detail panel** — speed, bearing, GPS, upcoming stops with real ETAs + delay info
-- **Route shape** — draws the vehicle's route path on the map when selected
-- **Service alerts** — real disruptions from the alerts feed, linked to vehicles
-- **Favourites** — star vehicles, filter to starred only, persisted in localStorage
-- **Follow mode** — map stays centred on selected vehicle as it moves
-- **Light theme** — clean, readable design
-- **Mobile-ready** — responsive layout, touch/pinch zoom, bottom sheet panel
-
----
-
-## Convert to Mobile App (Capacitor)
-
-```bash
-# Install Capacitor
-npm install @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
-
-# Initialise
-npx cap init "Adelaide Metro" "com.adelaidemetro.tracker"
-
-# Add platforms
-npx cap add ios
-npx cap add android
-
-# Build and sync
-npx cap sync
-
-# Open in Xcode / Android Studio
-npx cap open ios
-npx cap open android
-```
-
-For mobile, update `API` in `index.html` to point to your deployed server URL instead of `/api/...`.
-
----
-
-## API Endpoints Used
-
-| Endpoint | Interval | Purpose |
-|---|---|---|
-| `v1/realtime/vehicle_positions/debug` | 15s | Vehicle lat/lon/speed/bearing |
-| `v1/realtime/trip_updates/debug` | 60s | Stop ETAs and delays |
-| `v1/realtime/service_alerts/debug` | 5min | Disruptions and alerts |
-| `v1/static/latest/google_transit.zip` | Daily | Routes, stops, shapes, timetables |
-| `v1/static/latest/version.txt` | Daily | Check if timetable changed |
+Static update check for external sync only:
+- `v1/static/latest/version.txt`
+- `v1/static/latest/google_transit.zip`

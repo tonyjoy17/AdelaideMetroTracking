@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build:static": "node scripts/build-static-data.js",
+    "sync:static": "node scripts/sync-static-feed.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.10",
