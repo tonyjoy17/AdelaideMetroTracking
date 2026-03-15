@@ -273,16 +273,16 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 #detail{position:absolute;top:88px;right:12px;bottom:84px;width:372px;z-index:60;background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(247,250,255,.9));border:1px solid rgba(255,255,255,.68);border-radius:26px;box-shadow:var(--sh3);display:flex;flex-direction:column;overflow:hidden;transform:translateX(calc(100% + 24px));transition:transform .28s cubic-bezier(.22,1,.36,1)}
 #detail.open{transform:translateX(0)}
 .dp-head{display:flex;align-items:center;gap:8px;padding:0 14px;height:54px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(245,247,253,.96), rgba(255,255,255,.76));flex-shrink:0}
-.dp-back,.dp-fav,.dp-follow{width:32px;height:32px;border-radius:12px;background:rgba(255,255,255,.82);border:1px solid rgba(144,164,202,.2);display:flex;align-items:center;justify-content:center;transition:all .15s}
-.dp-back{font-size:15px;color:var(--ink2)}
-.dp-back:hover{background:var(--line)}
-.dp-fav{font-size:16px}
-.dp-fav:hover{border-color:var(--fav)}
-.dp-fav.on{background:var(--fav-lt);border-color:var(--fav)}
-.dp-follow{font-size:14px}
-.dp-follow.on{background:var(--tram);color:white;border-color:var(--tram)}
 .dp-title{font-size:14px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dp-scroll{flex:1;overflow-y:auto;padding-bottom:12px}
+.detail-actions{margin:12px 12px 8px;padding:12px;background:rgba(255,255,255,.76);border:1px solid rgba(144,164,202,.18);border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
+.detail-actions-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.detail-action-btn{min-height:42px;padding:0 12px;border-radius:14px;background:var(--surface2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink2);text-align:center;transition:all .15s}
+.detail-action-btn:hover{background:var(--surface3);border-color:var(--line2)}
+.detail-action-btn .ico{font-size:14px;line-height:1}
+.detail-action-btn.on{background:var(--tram);color:#fff;border-color:var(--tram)}
+.detail-action-btn.fav-on{background:var(--fav-lt);border-color:var(--fav);color:var(--ink)}
+.detail-actions-note{margin-top:9px;font-size:11px;color:var(--ink3);line-height:1.45}
 .d-hero{margin:12px 12px 6px;padding:15px;background:linear-gradient(135deg, rgba(233,238,251,.72), rgba(255,255,255,.92));border:1px solid rgba(144,164,202,.18);border-radius:20px;display:flex;gap:12px;align-items:flex-start;box-shadow:inset 0 1px 0 rgba(255,255,255,.75)}
 .d-hero-bd{width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:600;line-height:1.2;text-align:center;flex-shrink:0}
 .d-hero-name{font-size:15px;font-weight:800;line-height:1.2;letter-spacing:-.2px}
@@ -386,6 +386,7 @@ body.theme-night .trip-grid,
 body.theme-night .dep-row,
 body.theme-night .nearby-row,
 body.theme-night .drawer-tab-btn,
+body.theme-night .detail-actions,
 body.theme-night .d-hero{
   background:rgba(17,30,51,.88);
   border-color:rgba(121,150,194,.16);
@@ -401,9 +402,7 @@ body.theme-night .vcard.sel{
   background:rgba(18,37,55,.98);
   box-shadow:0 14px 30px rgba(0,0,0,.22);
 }
-body.theme-night .dp-back,
-body.theme-night .dp-fav,
-body.theme-night .dp-follow,
+body.theme-night .detail-action-btn,
 body.theme-night .stop-back,
 body.theme-night .drawer-close-btn,
 body.theme-night #mob-hamburger,
@@ -411,6 +410,8 @@ body.theme-night .mc-btn{
   background:rgba(16,28,48,.92);
   border-color:rgba(121,150,194,.18);
 }
+body.theme-night .detail-action-btn.on{background:var(--tram);color:#fff;border-color:var(--tram)}
+body.theme-night .detail-action-btn.fav-on{background:rgba(255,200,115,.22);border-color:rgba(255,193,94,.6);color:#fff1c8}
 body.theme-night .search-row:focus-within{
   background:rgba(17,30,51,.98);
   box-shadow:0 0 0 4px rgba(0,188,212,.12), inset 0 1px 0 rgba(255,255,255,.03);
@@ -577,6 +578,7 @@ body.theme-night .leaflet-container{background:#07111f}
   </div>
   <div class="tb-actions">
     <button class="tb-toggle" id="planner-toggle" onclick="openPlanner()" aria-label="Open trip planner" title="Open trip planner">⇄</button>
+    <button class="tb-toggle" id="favorites-toggle" onclick="openFavorites()" aria-label="Open favorites" title="Open favorites">★</button>
     <button class="tb-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle night view" aria-pressed="false" title="Toggle day/night view">☾</button>
     <div class="live-pill"><div class="live-dot"></div><span id="feed-time">LIVE</span></div>
   </div>
@@ -646,10 +648,7 @@ body.theme-night .leaflet-container{background:#07111f}
 
 <div id="detail">
   <div class="dp-head">
-    <button class="dp-back" onclick="closeDetail()" aria-label="Close details">←</button>
     <div class="dp-title" id="dp-title">Details</div>
-    <button class="dp-follow" id="dp-follow" onclick="toggleFollow()" aria-label="Toggle follow selected vehicle" aria-pressed="false">◎</button>
-    <button class="dp-fav" id="dp-fav" onclick="toggleFav()" aria-label="Toggle favorite vehicle" aria-pressed="false">☆</button>
   </div>
   <div class="dp-scroll" id="dp-scroll"><div id="dp-content"></div></div>
 </div>
@@ -671,7 +670,7 @@ body.theme-night .leaflet-container{background:#07111f}
 const S = {
   vehicles:[], alerts:[], tab:'all', filterRoute:null,
   selectedId:null, selectedStop:null,
-  mode:'list', // list | stop | alerts | nearby | planner
+  mode:'list', // list | stop | alerts | nearby | planner | favorites
   followMode:false,
   theme:(() => { try { return localStorage.getItem('adl_theme') || 'day'; } catch { return 'day'; } })(),
   tripCache:{}, shapeCache:{},
@@ -710,19 +709,36 @@ function syncControlState() {
   const drawerOpen = document.getElementById('sidebar').classList.contains('drawer-open');
   const detailOpen = document.getElementById('detail').classList.contains('open');
   const favActive = !!(S.selectedId && S.favs.includes(S.selectedId));
+  const dpFollow = document.getElementById('dp-follow');
+  const dpFav = document.getElementById('dp-fav');
   document.getElementById('mob-hamburger').setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
   document.getElementById('mob-hamburger').setAttribute('aria-label', drawerOpen ? 'Close vehicle list' : 'Open vehicle list');
   document.getElementById('mc-follow').setAttribute('aria-pressed', S.followMode ? 'true' : 'false');
-  document.getElementById('dp-follow').setAttribute('aria-pressed', S.followMode ? 'true' : 'false');
-  document.getElementById('dp-fav').setAttribute('aria-pressed', favActive ? 'true' : 'false');
+  if (dpFollow) dpFollow.setAttribute('aria-pressed', S.followMode ? 'true' : 'false');
+  if (dpFav) dpFav.setAttribute('aria-pressed', favActive ? 'true' : 'false');
   document.getElementById('detail').setAttribute('aria-hidden', detailOpen ? 'false' : 'true');
   document.getElementById('planner-toggle').classList.toggle('on', S.mode === 'planner');
+  document.getElementById('favorites-toggle').classList.toggle('on', S.mode === 'favorites');
   const themeBtn = document.getElementById('theme-toggle');
   themeBtn.classList.toggle('on', S.theme === 'night');
   themeBtn.setAttribute('aria-pressed', S.theme === 'night' ? 'true' : 'false');
   themeBtn.setAttribute('aria-label', S.theme === 'night' ? 'Switch to day view' : 'Switch to night view');
   themeBtn.textContent = S.theme === 'night' ? '☀' : '☾';
   syncTabButtons();
+}
+
+function updateDetailActionButtons() {
+  const followBtn = document.getElementById('dp-follow');
+  const favBtn = document.getElementById('dp-fav');
+  const favActive = !!(S.selectedId && S.favs.includes(S.selectedId));
+  if (followBtn) {
+    followBtn.classList.toggle('on', S.followMode);
+    followBtn.innerHTML = `<span class="ico">◎</span><span>${S.followMode ? 'Following vehicle' : 'Follow vehicle'}</span>`;
+  }
+  if (favBtn) {
+    favBtn.classList.toggle('fav-on', favActive);
+    favBtn.innerHTML = `<span class="ico">${favActive ? '★' : '☆'}</span><span>${favActive ? 'Saved' : 'Save vehicle'}</span>`;
+  }
 }
 
 function clearFilters() {
@@ -732,6 +748,17 @@ function clearFilters() {
   renderSidebar();
   updateMarkers();
   syncControlState();
+}
+
+function openFavorites() {
+  S.mode = S.mode === 'favorites' ? 'list' : 'favorites';
+  S.selectedStop = null;
+  renderSidebar();
+  syncControlState();
+  if (isMobile()) {
+    if (S.mode === 'favorites') mobDrawerOpen();
+    else mobileShowFilteredList();
+  }
 }
 
 function mobileShowFilteredList() {
@@ -766,6 +793,7 @@ function etaPill(realtimeIso, scheduledStr, delay) {
   const mins = minsUntil(realtimeIso);
   const cd   = mins !== null ? fmtCountdown(mins) : null;
   const delayInfo = fmtDelay(delay);
+  const schedDisplay = scheduledTimeDisplay(scheduledStr);
 
   if (cd) {
     // Register this element for live ticking — we use a data attr as key
@@ -773,19 +801,20 @@ function etaPill(realtimeIso, scheduledStr, delay) {
     S.etaTargets[key] = { iso: realtimeIso };
     return `<div style="text-align:right">
       <div class="eta-pill ${cd.cls}" data-eta="${key}">${cd.text}</div>
-      ${scheduledStr ? `<div class="eta-sched">${scheduledStr}</div>` : ''}
+      ${scheduledStr ? `<div class="eta-sched">${schedDisplay}</div>` : ''}
       ${delayInfo ? `<div class="dep-delay ${delayInfo.cls}">${delayInfo.label}</div>` : ''}
     </div>`;
   }
   // Fallback to static time
   return `<div style="text-align:right">
-    ${scheduledStr ? `<div class="dep-sched">${scheduledStr}</div>` : ''}
+    ${scheduledStr ? `<div class="dep-sched">${schedDisplay}</div>` : ''}
     ${delayInfo ? `<div class="dep-delay ${delayInfo.cls}">${delayInfo.label}</div>` : ''}
   </div>`;
 }
 function etaPillFromDeparture(dep, keySeed='sched') {
   const targetTs = departureTs(dep);
   const delayInfo = fmtDelay(deriveDelaySeconds(dep));
+  const schedDisplay = scheduledTimeDisplay(dep.scheduledTime);
   if (targetTs != null) {
     const mins = (targetTs - Date.now()) / 60000;
     const cd = fmtCountdown(mins);
@@ -794,7 +823,7 @@ function etaPillFromDeparture(dep, keySeed='sched') {
       S.etaTargets[key] = { ts: targetTs };
       return `<div style="text-align:right">
         <div class="eta-pill ${cd.cls}" data-eta="${key}">${cd.text}</div>
-        ${dep.scheduledTime ? `<div class="eta-sched">${dep.scheduledTime}</div>` : ''}
+        ${dep.scheduledTime ? `<div class="eta-sched">${schedDisplay}</div>` : ''}
         ${delayInfo ? `<div class="dep-delay ${delayInfo.cls}">${delayInfo.label}</div>` : ''}
       </div>`;
     }
@@ -832,20 +861,41 @@ const DIRS = ['N','NE','E','SE','S','SW','W','NW'];
 const bearDir = b => DIRS[Math.round(((b||0)+360)/45)%8];
 const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'}); } catch{ return '—'; }};
 const adelaideNowDate = () => new Date(new Date().toLocaleString('en-US',{timeZone:'Australia/Adelaide'}));
+const SERVICE_DAY_ROLLOVER_HOUR = 4;
+function serviceDayBaseDate() {
+  const base = adelaideNowDate();
+  if (base.getHours() < SERVICE_DAY_ROLLOVER_HOUR) base.setDate(base.getDate() - 1);
+  return base;
+}
+function scheduledTimeParts(scheduledStr) {
+  if (!scheduledStr) return null;
+  const parts = String(scheduledStr).split(':').map(n => Number(n));
+  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
+  const [hh=0, mm=0, ss=0] = parts;
+  return { hh, mm, ss };
+}
+function scheduledTimeDisplay(scheduledStr) {
+  const parts = scheduledTimeParts(scheduledStr);
+  if (!parts) return scheduledStr || '—';
+  const when = serviceDayBaseDate();
+  const dayOffset = Math.floor(parts.hh / 24);
+  when.setDate(when.getDate() + dayOffset);
+  when.setHours(parts.hh % 24, parts.mm, parts.ss, 0);
+  return when.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true, timeZone:'Australia/Adelaide' }).toLowerCase();
+}
 function departureTs(dep) {
   if (dep.realtimeTime) {
     const ts = new Date(dep.realtimeTime).getTime();
     return Number.isNaN(ts) ? null : ts;
   }
   if (!dep.scheduledTime) return null;
-  const base = adelaideNowDate();
-  const parts = String(dep.scheduledTime).split(':').map(n => Number(n));
-  if (parts.some(Number.isNaN)) return null;
-  const [hh=0, mm=0, ss=0] = parts;
+  const base = serviceDayBaseDate();
+  const parts = scheduledTimeParts(dep.scheduledTime);
+  if (!parts) return null;
   const when = new Date(base);
-  const dayOffset = Math.floor(hh / 24);
+  const dayOffset = Math.floor(parts.hh / 24);
   when.setDate(when.getDate() + dayOffset);
-  when.setHours(hh % 24, mm, ss, 0);
+  when.setHours(parts.hh % 24, parts.mm, parts.ss, 0);
   return when.getTime();
 }
 function upcomingDeparturesOnly(departures) {
@@ -857,14 +907,13 @@ function upcomingDeparturesOnly(departures) {
 }
 function scheduledTimeTs(scheduledStr) {
   if (!scheduledStr) return null;
-  const base = adelaideNowDate();
-  const parts = String(scheduledStr).split(':').map(n => Number(n));
-  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
-  const [hh=0, mm=0, ss=0] = parts;
+  const base = serviceDayBaseDate();
+  const parts = scheduledTimeParts(scheduledStr);
+  if (!parts) return null;
   const when = new Date(base);
-  const dayOffset = Math.floor(hh / 24);
+  const dayOffset = Math.floor(parts.hh / 24);
   when.setDate(when.getDate() + dayOffset);
-  when.setHours(hh % 24, mm, ss, 0);
+  when.setHours(parts.hh % 24, parts.mm, parts.ss, 0);
   return when.getTime();
 }
 function deriveDelaySeconds(item) {
@@ -1053,9 +1102,9 @@ function drawShape(shapeId, type) {
 function resetView() {
   S.followMode=false;
   document.getElementById('mc-follow').classList.remove('on');
-  document.getElementById('dp-follow').classList.remove('on');
   document.getElementById('detail').classList.remove('follow-compact');
   if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
+  updateDetailActionButtons();
   syncControlState();
   map.setView(ADELAIDE,12,{animate:true});
 }
@@ -1093,7 +1142,6 @@ function restoreFullMapFromNearby() {
 function toggleFollow() {
   S.followMode = !S.followMode;
   document.getElementById('mc-follow').classList.toggle('on', S.followMode);
-  document.getElementById('dp-follow').classList.toggle('on', S.followMode);
   const detail = document.getElementById('detail');
   if (S.followMode && S.selectedId) {
     const v = S.vehicles.find(x=>x.vehicleId===S.selectedId);
@@ -1104,12 +1152,13 @@ function toggleFollow() {
       mobDrawerClose();
     }
   } else if (!S.followMode) {
-    // Zoom out slightly when leaving follow mode so context is visible
-    if (map.getZoom() > 15) map.setZoom(14, {animate:true});
+    if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
     detail.classList.remove('follow-compact');
+    map.setView(ADELAIDE,12,{animate:true});
   }
   // Immediately re-render markers to apply/remove fade
   updateMarkers();
+  updateDetailActionButtons();
   syncControlState();
 }
 function locateMe() {
@@ -1232,17 +1281,13 @@ function renderSidebar() {
   if (S.mode==='stop' && S.selectedStop) { renderStopBoard(scroll); return; }
   if (S.mode==='alerts') { renderAlerts(scroll); return; }
   if (S.mode==='planner') { renderPlanner(scroll); return; }
+  if (S.mode==='favorites') { renderFavorites(scroll); return; }
   renderVList(scroll);
 }
 
-function renderVList(scroll) {
-  const fv = getFiltered();
-  if (!fv.length) {
-    scroll.innerHTML = `<div class="empty"><div class="empty-i">🔍</div><div class="empty-t">No vehicles</div></div>`;
-    return;
-  }
+function vehicleGroupsFor(list) {
   const to = {tram:0,train:1,bus:2};
-  const sorted = [...fv].sort((a,b) => {
+  const sorted = [...list].sort((a,b) => {
     const fa=S.favs.includes(a.vehicleId)?0:1, fb=S.favs.includes(b.vehicleId)?0:1;
     if (fa!==fb) return fa-fb;
     if (to[a.routeType]!==to[b.routeType]) return to[a.routeType]-to[b.routeType];
@@ -1256,24 +1301,16 @@ function renderVList(scroll) {
     if (!groups[gk]) groups[gk]=[];
     groups[gk].push(v);
   });
+  return groups;
+}
+
+function renderVehicleGroupCards(scroll, groups, extraHtml='') {
   const tc={tram:'var(--tram)',train:'var(--train)',bus:'var(--bus)'};
   const tpb={tram:'var(--tram-lt)',train:'var(--train-lt)',bus:'var(--bus-lt)'};
   const tl={tram:'Trams',train:'Trains',bus:'Buses'};
   const tIcon={tram:'🚊',train:'🚆',bus:'🚌'};
 
-  const filterMeta = getActiveFilterMeta();
-  let html = '';
-  if (filterMeta) {
-    html += `<div class="filter-bar">
-      <div class="filter-meta">
-        <span class="filter-lbl">Filter</span>
-        <span class="filter-chip">${filterMeta.label}${filterMeta.short ? ` <strong>${filterMeta.short}</strong>` : ''}</span>
-      </div>
-      <div class="filter-actions">
-        <button class="filter-btn" onclick="clearFilters()" aria-label="Clear active filter">Clear</button>
-      </div>
-    </div>`;
-  }
+  let html = extraHtml;
   const gkOrder = Object.keys(groups).sort((a,b)=>{
     const ia=['tram','train','bus'].indexOf(a), ib=['tram','train','bus'].indexOf(b);
     if (ia>-1&&ib>-1) return ia-ib; if (ia>-1) return -1; if (ib>-1) return 1; return a.localeCompare(b);
@@ -1316,6 +1353,38 @@ function renderVList(scroll) {
   // Scroll to selected
   const selEl = scroll.querySelector('.vcard.sel');
   if (selEl) setTimeout(()=>selEl.scrollIntoView({block:'nearest',behavior:'smooth'}),80);
+}
+
+function renderVList(scroll) {
+  const fv = getFiltered();
+  if (!fv.length) {
+    scroll.innerHTML = `<div class="empty"><div class="empty-i">🔍</div><div class="empty-t">No vehicles</div></div>`;
+    return;
+  }
+  const filterMeta = getActiveFilterMeta();
+  let extraHtml = '';
+  if (filterMeta) {
+    extraHtml += `<div class="filter-bar">
+      <div class="filter-meta">
+        <span class="filter-lbl">Filter</span>
+        <span class="filter-chip">${filterMeta.label}${filterMeta.short ? ` <strong>${filterMeta.short}</strong>` : ''}</span>
+      </div>
+      <div class="filter-actions">
+        <button class="filter-btn" onclick="clearFilters()" aria-label="Clear active filter">Clear</button>
+      </div>
+    </div>`;
+  }
+  renderVehicleGroupCards(scroll, vehicleGroupsFor(fv), extraHtml);
+}
+
+function renderFavorites(scroll) {
+  const favVehicles = S.vehicles.filter(v => S.favs.includes(v.vehicleId));
+  const hdr = `<div class="planner-head"><button class="stop-back" onclick="openFavorites()">←</button><div><div class="planner-title">Favorites</div><div class="planner-sub">${favVehicles.length} saved vehicle${favVehicles.length===1?'':'s'}</div></div></div>`;
+  if (!favVehicles.length) {
+    scroll.innerHTML = hdr + `<div class="empty"><div class="empty-i">★</div><div class="empty-t">No favorites saved yet</div><div class="empty-s">Open a vehicle and tap Save vehicle to add it here.</div></div>`;
+    return;
+  }
+  renderVehicleGroupCards(scroll, vehicleGroupsFor(favVehicles), hdr);
 }
 
 function renderAlerts(scroll) {
@@ -1552,10 +1621,8 @@ function selectVehicle(id) {
 
   // Open detail panel
   document.getElementById('dp-title').textContent=`${v.routeShort||'Vehicle'} — ${v.headsign||'Details'}`;
-  document.getElementById('dp-fav').textContent = S.favs.includes(id)?'★':'☆';
-  document.getElementById('dp-fav').classList.toggle('on',S.favs.includes(id));
-  document.getElementById('dp-follow').classList.toggle('on',S.followMode);
   document.getElementById('detail').classList.add('open');
+  updateDetailActionButtons();
   syncControlState();
   mobileOpenDetail();
   renderDetailContent(v);
@@ -1567,12 +1634,14 @@ function closeDetail() {
   if (S.followMode) {
     S.followMode = false;
     document.getElementById('mc-follow').classList.remove('on');
-    document.getElementById('dp-follow').classList.remove('on');
   }
+  if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
   document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+  updateDetailActionButtons();
   renderSidebar(); updateMarkers();
   syncControlState();
+  map.setView(ADELAIDE,12,{animate:true});
 }
 
 function toggleFav() {
@@ -1580,8 +1649,7 @@ function toggleFav() {
   const i=S.favs.indexOf(S.selectedId);
   if (i>-1) S.favs.splice(i,1); else S.favs.push(S.selectedId);
   saveFavs();
-  document.getElementById('dp-fav').textContent=S.favs.includes(S.selectedId)?'★':'☆';
-  document.getElementById('dp-fav').classList.toggle('on',S.favs.includes(S.selectedId));
+  updateDetailActionButtons();
   syncControlState();
   renderSidebar();
 }
@@ -1592,6 +1660,7 @@ function renderDetailContent(v) {
   const isMoving=v.speed>0.5;
   const stsC=isMoving?{l:'In Transit',bg:'var(--ok-lt)',col:'var(--ok)'}:{l:'Stopped',bg:'var(--stopped-lt)',col:'var(--stopped)'};
   const delayedStop=firstDelayedStop(v.upcomingStops), delayInfo=delayedStop?fmtDelay(deriveDelaySeconds(delayedStop)):null;
+  const favActive = S.favs.includes(v.vehicleId);
 
   // Crowd card
   const occInfo = v.occupancy ? (CROWD[v.occupancy.status]||{label:'Unknown',emoji:'⬜',pct:0,color:'var(--ink3)'}) : null;
@@ -1605,6 +1674,20 @@ function renderDetailContent(v) {
   const alertsHtml=(v.alerts||[]).map(a=>`<div class="dp-alert"><div class="dp-alert-title">⚠️ ${a.header||'Alert'}</div>${a.description?`<div class="dp-alert-body">${a.description}</div>`:''}</div>`).join('');
 
   document.getElementById('dp-content').innerHTML=`
+    <div class="detail-actions">
+      <div class="detail-actions-row">
+        <button class="detail-action-btn" onclick="closeDetail()" aria-label="Go back to map">
+          <span class="ico">←</span><span>Back to map</span>
+        </button>
+        <button class="detail-action-btn${S.followMode?' on':''}" id="dp-follow" onclick="toggleFollow()" aria-label="Toggle follow selected vehicle" aria-pressed="${S.followMode?'true':'false'}">
+          <span class="ico">◎</span><span>${S.followMode?'Following vehicle':'Follow vehicle'}</span>
+        </button>
+        <button class="detail-action-btn${favActive?' fav-on':''}" id="dp-fav" onclick="toggleFav()" aria-label="Toggle favorite vehicle" aria-pressed="${favActive?'true':'false'}">
+          <span class="ico">${favActive?'★':'☆'}</span><span>${favActive?'Saved':'Save vehicle'}</span>
+        </button>
+      </div>
+      <div class="detail-actions-note">Follow keeps this vehicle centered on the map while it moves. Drag the sheet up or down any time to change how much map you can see.</div>
+    </div>
     <div class="d-hero">
       <div class="d-hero-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
       <div style="flex:1;min-width:0">
@@ -1640,6 +1723,7 @@ function renderDetailContent(v) {
       <div class="ti-cell"><div class="ti-lbl">Direction</div><div class="ti-val">${v.directionId!=null?(v.directionId==0?'Outbound':'Inbound'):'—'}</div></div>
     </div>
     <div style="height:12px"></div>`;
+  updateDetailActionButtons();
 }
 
 async function loadDetailData(v) {
@@ -1680,6 +1764,7 @@ function renderStopTimelineRows(el, upcoming, type, hasRT) {
     const delay  = fmtDelay(deriveDelaySeconds(s));
     const mins   = minsUntil(rtIso);
     const cd     = mins !== null ? fmtCountdown(mins) : null;
+    const schedDisplay = scheduledTimeDisplay(s.scheduledTime);
     let timeHtml = '';
     if (isNext && cd) {
       const key = 'eta-tl-' + (rtIso||i);
@@ -1688,7 +1773,7 @@ function renderStopTimelineRows(el, upcoming, type, hasRT) {
     } else if (rtIso) {
       timeHtml = '<span class="stop-rt" style="color:' + (delay?.color || 'var(--ok)') + '">' + fmtTime(rtIso) + '</span>';
     }
-    if (s.scheduledTime && !isNext) timeHtml = '<span class="stop-sched">' + s.scheduledTime + '</span> ' + timeHtml;
+    if (s.scheduledTime && !isNext) timeHtml = '<span class="stop-sched">' + schedDisplay + '</span> ' + timeHtml;
     if (delay && !isNext) timeHtml += '<span class="stop-delay ' + delay.cls + '">' + delay.label + '</span>';
     html += '<div class="stop-row">'
       + '<div class="stop-spine"><div class="stop-dot' + (isNext ? ' nxt' : '') + '" style="' + (isNext ? 'background:' + dc + ';border-color:' + dc + ';box-shadow:0 0 0 3px ' + dlt : '') + '"></div>' + (i < upcoming.length-1 ? '<div class="stop-conn"></div>' : '') + '</div>'
@@ -1934,9 +2019,12 @@ function setupDetailDrag() {
   let startY=0, startT=0, dragging=false;
 
   function onStart(e) {
-    const rect = el.getBoundingClientRect();
+    const head = e.target?.closest?.('.dp-head');
+    if (!head) return;
+    if (e.target?.closest?.('button, a, input, select, textarea, [role="button"]')) return;
+    const rect = head.getBoundingClientRect();
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    if (clientY - rect.top > 56) return; // only drag from handle area
+    if (clientY < rect.top || clientY > rect.bottom) return;
     startY=clientY; startT=Date.now(); dragging=true;
     el.style.transition='none';
   }
