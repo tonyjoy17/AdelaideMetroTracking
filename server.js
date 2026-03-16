@@ -49,6 +49,7 @@ const store = {
     static: null,
   },
   errors: {},
+  stopRouteTypes: {},
   caches: {
     tripStops: new Map(),
     departuresByStop: new Map(),
@@ -165,28 +166,39 @@ function getDepartureRowsForStop(stopId) {
   return results;
 }
 
-function adelaideNowParts() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Adelaide' }));
+function adelaideTimeParts(timeMs) {
+  const d = new Date(timeMs);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Australia/Adelaide', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+  }).formatToParts(d);
+  const get = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+  return { y: get('year'), m: get('month') - 1, d: get('day'), h: get('hour') === 24 ? 0 : get('hour'), min: get('minute'), s: get('second') };
+}
+
+function getAdelaideEpoch(y, m, d, h, min, s) {
+  const clockUTC = Date.UTC(y, m, d, h, min, s);
+  const guessEpoch = clockUTC - 34200000;
+  const p = adelaideTimeParts(guessEpoch);
+  const actualClock = Date.UTC(p.y, p.m, p.d, p.h, p.min, p.s);
+  return guessEpoch + (clockUTC - actualClock);
 }
 
 const SERVICE_DAY_ROLLOVER_HOUR = 4;
-
-function serviceDayBaseDate() {
-  const dt = adelaideNowParts();
-  if (dt.getHours() < SERVICE_DAY_ROLLOVER_HOUR) dt.setDate(dt.getDate() - 1);
-  return dt;
-}
 
 function serviceTimeToMillis(timeStr) {
   if (!timeStr) return null;
   const parts = String(timeStr).split(':').map(Number);
   if (parts.length < 2 || parts.some(Number.isNaN)) return null;
   const [hh = 0, mm = 0, ss = 0] = parts;
-  const dt = serviceDayBaseDate();
-  const dayOffset = Math.floor(hh / 24);
-  dt.setDate(dt.getDate() + dayOffset);
-  dt.setHours(hh % 24, mm, ss, 0);
-  return dt.getTime();
+
+  const adl = adelaideTimeParts(Date.now());
+  let { y, m, d } = adl;
+  if (adl.h < SERVICE_DAY_ROLLOVER_HOUR) {
+    const prev = new Date(Date.UTC(y, m, d - 1));
+    y = prev.getUTCFullYear(); m = prev.getUTCMonth(); d = prev.getUTCDate();
+  }
+  return getAdelaideEpoch(y, m, d + Math.floor(hh / 24), hh % 24, mm, ss);
 }
 
 async function readJson(fileName) {
@@ -234,6 +246,18 @@ async function loadStatic(force = false) {
     store.stop_times_compact = stopTimesCompact || {};
     store.shapesById = null;
     clearRuntimeCaches();
+
+    store.stopRouteTypes = {};
+    Object.entries(store.trips_map).forEach(([tripId, trip]) => {
+      const route = store.routes[trip.routeId] || {};
+      const type = route.type || 'bus';
+      const compact = store.stop_times_compact[tripId];
+      if (!compact) return;
+      parseTripStopsFromCompact(compact).forEach((s) => {
+        if (!store.stopRouteTypes[s.stopId]) store.stopRouteTypes[s.stopId] = new Set();
+        store.stopRouteTypes[s.stopId].add(type);
+      });
+    });
 
     store.gtfsVersion = version;
     store.staticLoaded = true;
@@ -413,7 +437,6 @@ async function pollAlerts() {
 function staticStops(tripId, fromSeq = 0) {
   return getStopTimesForTrip(tripId)
     .filter((s) => s.seq >= fromSeq)
-    .slice(0, 12)
     .map((s) => {
       const si = store.stops[s.stopId] || {};
       return {
@@ -447,7 +470,7 @@ function upcomingStopsFor(v) {
     }
 
     if (!stops.length) stops = td.stopUpdates.slice(-3);
-    return stops.slice(0, 10);
+    return stops;
   }
 
   let stops = staticStops(v.tripId, seq);
@@ -461,7 +484,7 @@ function upcomingStopsFor(v) {
     stops = future.length ? future : all.slice(-3);
   }
 
-  return stops.slice(0, 10);
+  return stops;
 }
 
 function scheduleDailyStaticReload() {
@@ -493,9 +516,18 @@ app.get('/api/vehicles', (req, res) => {
     count: store.vehicles.length,
     vehicles: store.vehicles.map((v) => ({
       ...v,
-      upcomingStops: upcomingStopsFor(v),
       alerts: store.alerts.filter((a) => a.routes.includes(v.routeId) || a.routes.includes(v.routeShort)),
     })),
+  });
+});
+
+app.get('/api/vehicles/:id', (req, res) => {
+  const v = store.vehicles.find((x) => x.vehicleId === req.params.id);
+  if (!v) return res.status(404).json({ error: 'not found' });
+  res.json({
+    ...v,
+    upcomingStops: upcomingStopsFor(v),
+    alerts: store.alerts.filter((a) => a.routes.includes(v.routeId) || a.routes.includes(v.routeShort)),
   });
 });
 
@@ -557,7 +589,6 @@ app.get('/api/stops/search', (req, res) => {
 
   return res.json({ stops: results });
 });
-
 app.get('/api/stops/nearby', (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -575,15 +606,7 @@ app.get('/api/stops/nearby', (req, res) => {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  const stopRouteTypes = {};
-  Object.entries(store.trips_map || {}).forEach(([tripId, trip]) => {
-    const route = store.routes[trip.routeId] || {};
-    const type = route.type || 'bus';
-    getStopTimesForTrip(tripId).forEach((s) => {
-      if (!stopRouteTypes[s.stopId]) stopRouteTypes[s.stopId] = new Set();
-      stopRouteTypes[s.stopId].add(type);
-    });
-  });
+  const stopRouteTypes = store.stopRouteTypes || {};
 
   const results = Object.entries(store.stops)
     .filter(([, s]) => s.lat && s.lon)
@@ -676,7 +699,13 @@ app.get('/api/plan', (req, res) => {
   const now = Date.now();
   const options = [];
 
+  const markerFrom = `|${fromStopId}|`;
+  const markerTo = `|${toStopId}|`;
+
   Object.entries(store.trips_map || {}).forEach(([tripId, trip]) => {
+    const compact = store.stop_times_compact[tripId];
+    if (!compact || !compact.includes(markerFrom) || !compact.includes(markerTo)) return;
+
     const stops = getStopTimesForTrip(tripId);
     if (!stops.length) return;
 
