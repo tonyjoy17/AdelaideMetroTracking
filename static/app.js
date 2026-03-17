@@ -628,6 +628,23 @@ function restoreFullMapFromNearby() {
   S.userPos=null;
   map.setView(ADELAIDE,12,{animate:true});
 }
+
+function focusVehicleForFollow(v, animate = true) {
+  if (!v) return;
+  const zoom = Math.max(map.getZoom(), 15);
+  map.setView([v.lat, v.lon], zoom, { animate, duration: animate ? 0.45 : 0 });
+  if (!isMobile()) return;
+
+  const detail = document.getElementById('detail');
+  if (!detail?.classList.contains('open')) return;
+
+  const detailRect = detail.getBoundingClientRect();
+  const offsetY = Math.max(90, Math.min(220, detailRect.height * 0.22));
+  setTimeout(() => {
+    map.panBy([0, offsetY], { animate: true, duration: 0.35 });
+  }, animate ? 50 : 0);
+}
+
 function toggleFollow() {
   showActionFeedback(S.followMode ? 'Stopping follow...' : 'Following vehicle...');
   S.followMode = !S.followMode;
@@ -635,12 +652,12 @@ function toggleFollow() {
   const detail = document.getElementById('detail');
   if (S.followMode && S.selectedId) {
     const v = S.vehicles.find(x=>x.vehicleId===S.selectedId);
-    if (v) map.setView([v.lat, v.lon], Math.max(map.getZoom(), 15), {animate:true});
     if (isMobile()) {
       detail.classList.add('open','follow-compact');
       detail.classList.remove('expanded');
       mobDrawerClose();
     }
+    focusVehicleForFollow(v);
   } else if (!S.followMode) {
     if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
     detail.classList.remove('follow-compact');
@@ -1208,23 +1225,36 @@ function renderDetailContent(v) {
       <div class="detail-actions-note">Follow keeps this vehicle centered on the map while it moves. Drag the sheet up or down any time to change how much map you can see.</div>
     </div>
     <div class="d-hero">
-      <div class="d-hero-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
-      <div style="flex:1;min-width:0">
-        <div class="d-hero-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
-        <div class="d-hero-long">${v.headsign?'To: '+v.headsign:'—'}</div>
-        <div class="d-chips">
-          <span class="d-chip" style="background:${typeC.bg};color:${typeC.col};border-color:${typeC.brd}">${typeC.l}</span>
-          <span class="d-chip" style="background:${stsC.bg};color:${stsC.col};border-color:transparent">${stsC.l}</span>
-          ${delayInfo?.cls==='late'?`<span class="d-chip" style="background:var(--danger-lt);color:${delayInfo.color};border-color:transparent">Delayed ${delayInfo.label}</span>`:''}
-          ${vehicleAlertCount(v)?'<span class="d-chip" style="background:var(--danger-lt);color:var(--danger);border-color:transparent">⚠ Alert</span>':''}
+      <div class="d-hero-top">
+        <div class="d-hero-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
+        <div class="d-hero-main">
+          <div class="d-hero-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
+          <div class="d-hero-long">${v.headsign?'To: ' + v.headsign:'—'}</div>
+          <div class="d-chips">
+            <span class="d-chip" style="background:${typeC.bg};color:${typeC.col};border-color:${typeC.brd}">${typeC.l}</span>
+            <span class="d-chip" style="background:${stsC.bg};color:${stsC.col};border-color:transparent">${stsC.l}</span>
+            ${delayInfo?.cls==='late'?`<span class="d-chip" style="background:var(--danger-lt);color:${delayInfo.color};border-color:transparent">Delayed ${delayInfo.label}</span>`:''}
+            ${vehicleAlertCount(v)?'<span class="d-chip" style="background:var(--danger-lt);color:var(--danger);border-color:transparent">⚠ Alert</span>':''}
+          </div>
+        </div>
+      </div>
+      <div class="d-hero-stops">
+        <div class="d-hero-stop">
+          <span class="d-hero-stop-lbl">Current Stop</span>
+          <span class="d-hero-stop-val${currentStop?'':' muted'}" id="kv-cur">${currentStop?.stopName||currentStop?.stopId||'Unavailable'}</span>
+        </div>
+        <div class="d-hero-stop">
+          <span class="d-hero-stop-lbl">Next Stop</span>
+          <span class="d-hero-stop-val${nextStop?'':' muted'}" id="kv-nxt">${nextStop?.stopName||nextStop?.stopId||'Unavailable'}</span>
+        </div>
+      </div>
+    </div>
         </div>
       </div>
     </div>
     <div class="kpi-row stops">
       <div class="kpi"><div class="kpi-v" id="kv-spd" style="color:${isMoving?'var(--ok)':'var(--stopped)'}">${isMoving?Math.round(v.speed):'0'}</div><div class="kpi-l">km / h</div></div>
-      <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
-      <div class="kpi"><div class="kpi-v stop${currentStop?'':' muted'}" id="kv-cur">${currentStop?.stopName||currentStop?.stopId||'Unavailable'}</div><div class="kpi-l">Current Stop</div></div>
-      <div class="kpi"><div class="kpi-v stop${nextStop?'':' muted'}" id="kv-nxt">${nextStop?.stopName||nextStop?.stopId||'Unavailable'}</div><div class="kpi-l">Next Stop</div></div>
+      <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
     </div>
     ${crowdHtml}
     ${alertsHtml}
@@ -1498,8 +1528,7 @@ async function refreshSelectedVehicleDetail() {
   S.prevStopSeq[S.selectedId] = currSeq;
 
   if (S.followMode) {
-    const currentZoom = map.getZoom();
-    map.setView([sv.lat,sv.lon], currentZoom, {animate:true, duration:.4});
+    focusVehicleForFollow(sv);
   }
 }
 
@@ -1723,6 +1752,5 @@ document.addEventListener('visibilitychange', () => {
 });
 
 init();
-
 
 

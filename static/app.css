@@ -283,10 +283,17 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 .detail-action-btn.on{background:var(--tram);color:#fff;border-color:var(--tram)}
 .detail-action-btn.fav-on{background:var(--fav-lt);border-color:var(--fav);color:var(--ink)}
 .detail-actions-note{margin-top:9px;font-size:11px;color:var(--ink3);line-height:1.45}
-.d-hero{margin:12px 12px 6px;padding:15px;background:linear-gradient(135deg, rgba(233,238,251,.72), rgba(255,255,255,.92));border:1px solid rgba(144,164,202,.18);border-radius:20px;display:flex;gap:12px;align-items:flex-start;box-shadow:inset 0 1px 0 rgba(255,255,255,.75)}
+.d-hero{margin:12px 12px 6px;padding:15px;background:linear-gradient(135deg, rgba(233,238,251,.72), rgba(255,255,255,.92));border:1px solid rgba(144,164,202,.18);border-radius:20px;display:flex;flex-direction:column;gap:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.75)}
+.d-hero-top{display:flex;gap:12px;align-items:flex-start}
+.d-hero-main{flex:1;min-width:0}
 .d-hero-bd{width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:600;line-height:1.2;text-align:center;flex-shrink:0}
 .d-hero-name{font-size:15px;font-weight:800;line-height:1.2;letter-spacing:-.2px}
 .d-hero-long{font-size:11px;color:var(--ink3);margin-top:2px;line-height:1.4}
+.d-hero-stops{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+.d-hero-stop{padding:9px 10px;border-radius:14px;background:rgba(255,255,255,.68);border:1px solid rgba(144,164,202,.16)}
+.d-hero-stop-lbl{display:block;font-size:9px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.45px}
+.d-hero-stop-val{display:block;margin-top:4px;font-size:12px;font-weight:800;line-height:1.3;color:var(--ink)}
+.d-hero-stop-val.muted{color:var(--ink3)}
 .d-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
 .d-chip{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:600;border:1px solid}
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 12px 6px}
