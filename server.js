@@ -457,34 +457,64 @@ function staticStops(tripId, fromSeq = 0) {
 function upcomingStopsFor(v) {
   const seq = v.stopSeq || 0;
   const td = store.trips[v.tripId];
+  const now = Date.now();
+  const annotateWindow = (stops) => {
+    if (!stops.length) return stops;
+
+    let currentIdx = stops.findIndex((s) => (s.sequence || 0) >= seq);
+    if (currentIdx < 0) currentIdx = stops.findIndex((s) => {
+      const t = s.arrivalTime || s.departureTime;
+      if (!t) return true;
+      const ts = new Date(t).getTime();
+      return Number.isNaN(ts) || ts >= now - 30000;
+    });
+    if (currentIdx < 0) currentIdx = Math.max(stops.length - 1, 0);
+
+    const start = Math.max(0, currentIdx - 3);
+    return stops.slice(start).map((s, idx) => {
+      const absoluteIdx = start + idx;
+      let timelineStatus = 'upcoming';
+      if (absoluteIdx < currentIdx) timelineStatus = 'passed';
+      else if (absoluteIdx === currentIdx) timelineStatus = 'current';
+      else if (absoluteIdx === currentIdx + 1) timelineStatus = 'next';
+
+      return {
+        ...s,
+        timelineStatus,
+        lat: s.lat ?? s.stopLat ?? null,
+        lon: s.lon ?? s.stopLon ?? null,
+      };
+    });
+  };
 
   if (td && td.stopUpdates.length) {
-    let stops = td.stopUpdates.filter((s) => s.sequence >= seq);
+    const isUpcomingRealtimeStop = (s) => {
+      const t = s.arrivalTime || s.departureTime;
+      if (!t) return true;
+      const ts = new Date(t).getTime();
+      return Number.isNaN(ts) || ts >= now - 30000;
+    };
 
+    let stops = td.stopUpdates.slice();
     if (!stops.length || seq === 0) {
-      const now = Date.now();
-      stops = td.stopUpdates.filter((s) => {
-        const t = s.arrivalTime || s.departureTime;
-        return !t || new Date(t).getTime() >= now - 90000;
-      });
+      stops = td.stopUpdates.filter(isUpcomingRealtimeStop);
     }
-
-    if (!stops.length) stops = td.stopUpdates.slice(-3);
-    return stops;
+    if (!stops.length) stops = td.stopUpdates.slice(-4);
+    return annotateWindow(stops);
   }
 
-  let stops = staticStops(v.tripId, seq);
-  if (!stops.length || seq === 0) {
-    const all = staticStops(v.tripId, 0);
-    const now = Date.now();
-    const future = all.filter((s) => {
-      const ts = serviceTimeToMillis(s.scheduledTime);
-      return ts == null || ts >= now - 60000;
-    });
-    stops = future.length ? future : all.slice(-3);
-  }
+  const isUpcomingStaticStop = (s) => {
+    const ts = serviceTimeToMillis(s.scheduledTime);
+    return ts == null || ts >= now - 60000;
+  };
 
-  return stops;
+  let stops = staticStops(v.tripId, 0);
+  if (!stops.length) return stops;
+  const future = stops.filter(isUpcomingStaticStop);
+  if ((!future.length || seq === 0) && future.length) {
+    return annotateWindow(stops);
+  }
+  return annotateWindow(stops);
 }
 
 function scheduleDailyStaticReload() {

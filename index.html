@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -293,6 +293,9 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 .kpi{background:rgba(255,255,255,.76);border:1px solid rgba(144,164,202,.18);border-radius:16px;padding:11px 8px;text-align:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
 .kpi-v{font-size:21px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
 .kpi-l{font-size:9px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.kpi-row.stops{grid-template-columns:repeat(2,1fr)}
+.kpi-v.stop{font-size:13px;line-height:1.25;letter-spacing:-.2px;font-weight:800}
+.kpi-v.stop.muted{color:var(--ink3)}
 .crowd-card{margin:0 12px 6px;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r12);padding:12px 14px}
 .crowd-lbl{font-size:9px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px}
 .crowd-bg{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-bottom:8px}
@@ -314,6 +317,8 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 .stop-spine{display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:16px}
 .stop-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line2);background:var(--surface);flex-shrink:0}
 .stop-dot.nxt{width:12px;height:12px}
+.stop-dot.past{background:var(--line2);border-color:var(--line2)}
+.stop-dot.cur{width:12px;height:12px}
 .stop-conn{width:2px;flex:1;min-height:14px;background:var(--line)}
 .stop-content{flex:1;padding-bottom:6px;min-width:0}
 .stop-nm{font-size:12px;font-weight:600;line-height:1.3}
@@ -682,6 +687,7 @@ const S = {
   prevPositions:{},
   prevStopSeq:{},
   stopShowAll:false,
+  stopBoardRequestId:0,
   etaTimer:null,          // setInterval for countdown ticking
   etaTargets:{},          // keyâ†’{el, isoTime} for live ticking
   favs: (() => { try { return JSON.parse(localStorage.getItem('adl_favs3')||'[]'); } catch { return []; }})(),
@@ -952,7 +958,7 @@ const CROWD = {
 
 function firstDelayedStop(upcomingStops) {
   if (!upcomingStops?.length) return null;
-  return upcomingStops.find(s => Math.abs(deriveDelaySeconds(s)) > 0) || null;
+  return upcomingStops.find(s => s?.timelineStatus !== 'passed' && Math.abs(deriveDelaySeconds(s)) > 0) || null;
 }
 
 function vehicleToward(v) {
@@ -963,15 +969,25 @@ function vehicleToward(v) {
 }
 
 function nextStopForVehicle(v) {
-  const stop = v?.upcomingStops?.find(s => s?.stopId && s?.lat != null && s?.lon != null);
+  const stop = vehicleNextStop(v) || v?.upcomingStops?.find(s => s?.stopId && (s?.lat != null || s?.stopLat != null) && (s?.lon != null || s?.stopLon != null));
   if (!stop) return null;
   return {
     stopId: stop.stopId,
     name: stop.stopName || stop.name || 'Next stop',
     code: stop.stopCode || stop.code || '',
-    lat: stop.lat,
-    lon: stop.lon
+    lat: stop.lat ?? stop.stopLat,
+    lon: stop.lon ?? stop.stopLon
   };
+}
+
+function vehicleCurrentStop(v) {
+  return v?.upcomingStops?.find(s => s?.timelineStatus === 'current') || null;
+}
+
+function vehicleNextStop(v) {
+  return v?.upcomingStops?.find(s => s?.timelineStatus === 'next')
+    || v?.upcomingStops?.find(s => s?.timelineStatus === 'upcoming')
+    || null;
 }
 
 function openVehicleNextStop(vehicleId, ev) {
@@ -1011,34 +1027,116 @@ function toggleTheme() {
 }
 
 const markers = {};
+const busDots = {};
+const iconCache = new Map();
+const MARKER_VIEWPORT_PAD = 0.35;
+const DETAILED_MARKER_ZOOM = 14;
+let mapInteractionActive = false;
+
+function markerIconKey(v, sel) {
+  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const compact = zoom < DETAILED_MARKER_ZOOM && !sel;
+  const bearingBucket = v.speed > 0.5 ? Math.round((v.bearing || 0) / 10) * 10 : 0;
+  return [
+    v.routeType || 'bus',
+    v.routeShort || '',
+    sel ? 'sel' : 'base',
+    compact ? 'compact' : 'full',
+    v.speed > 0.5 ? 'moving' : 'stopped',
+    bearingBucket,
+    v.alerts?.length ? 'alert' : 'clear',
+    v.occupancy?.emoji || '',
+  ].join('|');
+}
+
+function shouldRenderMarker(v, bounds) {
+  if (!bounds) return true;
+  return bounds.contains([v.lat, v.lon]) || v.vehicleId === S.selectedId;
+}
+
+function useBusDot(v) {
+  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  return v.routeType === 'bus' && v.vehicleId !== S.selectedId && zoom < DETAILED_MARKER_ZOOM;
+}
+
+function busDotStyle(v, visible) {
+  const moving = v.speed > 0.5;
+  return {
+    radius: moving ? 5 : 4,
+    color: '#ffffff',
+    weight: 1.25,
+    fillColor: vColor(v.routeType, v.speed),
+    fillOpacity: S.followMode ? 0.18 : visible ? 0.88 : 0.18,
+    opacity: S.followMode ? 0.25 : visible ? 0.95 : 0.2,
+  };
+}
+
+function syncBusDot(v, visible) {
+  const id = v.vehicleId;
+  const style = busDotStyle(v, visible);
+  let dot = busDots[id];
+  if (dot) {
+    dot.setLatLng([v.lat, v.lon]);
+    dot.setStyle(style);
+    if (visible) dot.bringToFront();
+    return;
+  }
+  dot = L.circleMarker([v.lat, v.lon], style);
+  dot.on('click', () => selectVehicle(v.vehicleId));
+  dot.addTo(map);
+  busDots[id] = dot;
+}
+
+function removeMarkerInstance(id) {
+  if (markers[id]) {
+    markers[id].remove();
+    delete markers[id];
+  }
+}
+
+function removeBusDot(id) {
+  if (busDots[id]) {
+    busDots[id].remove();
+    delete busDots[id];
+  }
+}
 
 function makeIcon(v, sel) {
+  const key = markerIconKey(v, sel);
+  const cached = iconCache.get(key);
+  if (cached) return cached;
   const color = vColor(v.routeType, v.speed);
   const label = (v.routeShort||'').substring(0,6);
   const isTram = v.routeType==='tram', isTrain = v.routeType==='train';
+  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const compact = zoom < DETAILED_MARKER_ZOOM && !sel;
   let sz = isTram?28:isTrain?26:v.speed>0.5?20:13;
   if (sel) sz = Math.round(sz*1.4);
+  if (compact) sz = isTram ? 16 : isTrain ? 15 : 11;
 
   let arrow='';
-  if (v.speed>0.5) {
+  if (v.speed>0.5 && !compact) {
     const a=v.bearing||0, asz=sz+12, mid=asz/2;
     arrow=`<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(${a}deg);pointer-events:none;width:${asz}px;height:${asz}px;overflow:visible"><svg width="${asz}" height="${asz}" viewBox="0 0 ${asz} ${asz}" style="overflow:visible"><polygon points="${mid},2 ${mid-4},10 ${mid+4},10" fill="${color}" opacity="0.7"/></svg></div>`;
   }
-  const alertRing = v.alerts?.length ? `<div style="position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(183,28,28,.6);pointer-events:none"></div>` : '';
+  const alertRing = v.alerts?.length ? `<div style="position:absolute;inset:${compact ? '-3px' : '-5px'};border-radius:50%;border:${compact ? '1.5px' : '2px'} solid rgba(183,28,28,.6);pointer-events:none"></div>` : '';
   const selRing   = sel ? `<div style="position:absolute;inset:-6px;border-radius:50%;border:2.5px solid ${color};opacity:.4;pointer-events:none"></div>` : '';
-  const occBadge  = (isTram && v.occupancy) ? `<div style="position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);font-size:10px;line-height:1;pointer-events:none">${v.occupancy.emoji}</div>` : '';
-  const liveBadge = v.speed>0.5 ? `<div style="position:absolute;top:-2px;right:-2px;width:7px;height:7px;border-radius:50%;background:var(--ok);border:1.5px solid var(--surface);animation:pulse 2s infinite;box-shadow:0 0 4px var(--ok);pointer-events:none;z-index:2"></div>` : '';
-  const border    = sel ? `border:3px solid var(--surface);box-shadow:0 0 0 3px ${color},0 4px 12px rgba(0,0,0,.25)` : `border:2px solid var(--surface);box-shadow:0 2px 6px rgba(0,0,0,.2)`;
-  const showLbl   = isTram||isTrain||sel;
+  const occBadge  = (isTram && v.occupancy && !compact) ? `<div style="position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);font-size:10px;line-height:1;pointer-events:none">${v.occupancy.emoji}</div>` : '';
+  const liveBadge = (v.speed>0.5 && !compact) ? `<div style="position:absolute;top:-2px;right:-2px;width:7px;height:7px;border-radius:50%;background:var(--ok);border:1.5px solid var(--surface);animation:pulse 2s infinite;box-shadow:0 0 4px var(--ok);pointer-events:none;z-index:2"></div>` : '';
+  const border    = sel ? `border:3px solid var(--surface);box-shadow:0 0 0 3px ${color},0 4px 12px rgba(0,0,0,.25)` : compact ? `border:1.5px solid rgba(255,255,255,.9);box-shadow:0 1px 4px rgba(0,0,0,.18)` : `border:2px solid var(--surface);box-shadow:0 2px 6px rgba(0,0,0,.2)`;
+  const showLbl   = !compact && (isTram||isTrain||sel);
   const fs        = Math.max(7, Math.round(sz/3.2));
   const lbl       = showLbl ? `<span style="font-family:'JetBrains Mono',monospace;font-size:${fs}px;font-weight:600;color:white;line-height:1;text-align:center;max-width:${sz-4}px;overflow:hidden;display:block">${label}</span>` : '';
 
   const html = `<div style="position:relative;width:${sz}px;height:${sz}px">${selRing}${arrow}${alertRing}<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};${border};display:flex;align-items:center;justify-content:center;cursor:pointer">${lbl}</div>${occBadge}${liveBadge}</div>`;
-  return L.divIcon({ html, className:'', iconSize:[sz,sz], iconAnchor:[sz/2,sz/2] });
+  const icon = L.divIcon({ html, className:'', iconSize:[sz,sz], iconAnchor:[sz/2,sz/2] });
+  iconCache.set(key, icon);
+  return icon;
 }
 
 // Smooth interpolation between two GPS positions over `ms` milliseconds
 function animateMarkerTo(marker, toLat, toLon, ms) {
+  if (mapInteractionActive) { marker.setLatLng([toLat, toLon]); return; }
   const el = marker.getElement();
   if (!el) { marker.setLatLng([toLat, toLon]); return; }
 
@@ -1061,12 +1159,20 @@ function animateMarkerTo(marker, toLat, toLon, ms) {
 function updateMarkers() {
   const filteredSet = new Set(getFiltered().map(v=>v.vehicleId));
   const seen = new Set();
+  const bounds = map.getBounds ? map.getBounds().pad(MARKER_VIEWPORT_PAD) : null;
 
   S.vehicles.forEach(v => {
     if (!v.lat||!v.lon) return;
+    if (!shouldRenderMarker(v, bounds)) return;
     seen.add(v.vehicleId);
     const sel = v.vehicleId===S.selectedId;
     const vis = filteredSet.has(v.vehicleId);
+    if (useBusDot(v)) {
+      removeMarkerInstance(v.vehicleId);
+      syncBusDot(v, vis);
+      return;
+    }
+    removeBusDot(v.vehicleId);
     const icon = makeIcon(v, sel);
     const zi = v.routeType==='tram'?200:v.routeType==='train'?100:0;
 
@@ -1092,7 +1198,10 @@ function updateMarkers() {
   });
 
   Object.keys(markers).forEach(id => {
-    if (!seen.has(id)) { markers[id].remove(); delete markers[id]; }
+    if (!seen.has(id)) removeMarkerInstance(id);
+  });
+  Object.keys(busDots).forEach(id => {
+    if (!seen.has(id)) removeBusDot(id);
   });
 }
 
@@ -1554,9 +1663,11 @@ function renderPlanner(scroll) {
 
 async function renderStopBoard(scroll) {
   const stop = S.selectedStop;
+  const requestId = ++S.stopBoardRequestId;
   scroll.innerHTML=`<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name||stop.stopId}</div>${stop.code?`<div class="stop-id-sm">Stop ${stop.code}</div>`:''}</div></div></div><div class="empty"><div class="empty-i" style="animation:spin 1s linear infinite;display:inline-block">⏳</div><div class="empty-t">Loading departures...</div></div>`;
   try {
     const data = await fetch(`/api/stops/${stop.stopId}/departures`).then(r=>r.json());
+    if (requestId !== S.stopBoardRequestId || S.mode !== 'stop' || !S.selectedStop || S.selectedStop.stopId !== stop.stopId) return;
     const allServices = (data.departures||[]).sort((a,b) => (departureTs(a) ?? Number.MAX_SAFE_INTEGER) - (departureTs(b) ?? Number.MAX_SAFE_INTEGER));
     const upcoming = upcomingDeparturesOnly(allServices);
     if (!allServices.length) {
@@ -1592,6 +1703,7 @@ async function renderStopBoard(scroll) {
   }
 }
 function closeStop() {
+  S.stopBoardRequestId++;
   S.selectedStop=null; S.mode='list'; S.stopShowAll=false;
   resetEtaTargets();
   renderSidebar();
@@ -1678,6 +1790,8 @@ function renderDetailContent(v) {
   const isMoving=v.speed>0.5;
   const stsC=isMoving?{l:'In Transit',bg:'var(--ok-lt)',col:'var(--ok)'}:{l:'Stopped',bg:'var(--stopped-lt)',col:'var(--stopped)'};
   const delayedStop=firstDelayedStop(v.upcomingStops), delayInfo=delayedStop?fmtDelay(deriveDelaySeconds(delayedStop)):null;
+  const currentStop = vehicleCurrentStop(v);
+  const nextStop = vehicleNextStop(v);
   const favActive = S.favs.includes(v.vehicleId);
 
   // Crowd card
@@ -1719,10 +1833,11 @@ function renderDetailContent(v) {
         </div>
       </div>
     </div>
-    <div class="kpi-row">
+    <div class="kpi-row stops">
       <div class="kpi"><div class="kpi-v" id="kv-spd" style="color:${isMoving?'var(--ok)':'var(--stopped)'}">${isMoving?Math.round(v.speed):'0'}</div><div class="kpi-l">km / h</div></div>
-      <div class="kpi"><div class="kpi-v" id="kv-brg">${Math.round(v.bearing||0)}°</div><div class="kpi-l">${bearDir(v.bearing)}</div></div>
       <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
+      <div class="kpi"><div class="kpi-v stop${currentStop?'':' muted'}" id="kv-cur">${currentStop?.stopName||currentStop?.stopId||'Unavailable'}</div><div class="kpi-l">Current Stop</div></div>
+      <div class="kpi"><div class="kpi-v stop${nextStop?'':' muted'}" id="kv-nxt">${nextStop?.stopName||nextStop?.stopId||'Unavailable'}</div><div class="kpi-l">Next Stop</div></div>
     </div>
     ${crowdHtml}
     ${alertsHtml}
@@ -1731,7 +1846,7 @@ function renderDetailContent(v) {
       <div class="gps-cell"><div class="gps-lbl">Latitude</div><div class="gps-val" id="gv-lat">${v.lat?.toFixed(6)}</div></div>
       <div class="gps-cell"><div class="gps-lbl">Longitude</div><div class="gps-val" id="gv-lon">${v.lon?.toFixed(6)}</div></div>
     </div>
-    <div class="d-sec">Upcoming Stops</div>
+    <div class="d-sec">Route Stops</div>
     <div id="stops-zone"><div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">Loading...</div></div>
     <div class="d-sec">Trip Info</div>
     <div class="trip-grid">
@@ -1747,11 +1862,14 @@ function renderDetailContent(v) {
 async function loadDetailData(v) {
   if (!v.tripId) { const sz=document.getElementById('stops-zone'); if(sz) sz.innerHTML='<div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">No trip data</div>'; return; }
   try {
+    if (v.upcomingStops?.length) {
+      renderStopTimelineDirect(v.upcomingStops, v.routeType, !!v.upcomingStops[0]?.arrivalTime);
+    }
     if (!S.tripCache[v.tripId]) {
       const r=await fetch(`/api/trips/${v.tripId}`); S.tripCache[v.tripId]=await r.json();
     }
     const td=S.tripCache[v.tripId];
-    renderStopTimeline(td.stops||[], v.stopSeq||0, v.routeType, td.hasRealtime);
+    if (!v.upcomingStops?.length) renderStopTimeline(td.stops||[], v.stopSeq||0, v.routeType, td.hasRealtime);
     const ns=(td.stops||[]).find(s=>s.sequence>=(v.stopSeq||0));
     if (ns) {
       const d=fmtDelay(ns.delay);
@@ -1770,33 +1888,49 @@ async function loadDetailData(v) {
 }
 
 
-function renderStopTimelineRows(el, upcoming, type, hasRT) {
-  if (!upcoming?.length) { el.innerHTML='<div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">End of line</div>'; return; }
+function renderStopTimelineRows(el, stops, type, hasRT) {
+  if (!stops?.length) { el.innerHTML='<div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">End of line</div>'; return; }
   const dc  = type==='tram'?'var(--tram)':type==='train'?'var(--train)':'var(--bus)';
   const dlt = type==='tram'?'var(--tram-lt)':type==='train'?'var(--train-lt)':'var(--bus-lt)';
   let html = '<div class="stop-tl">';
   if (!hasRT) html += '<div style="padding:4px 14px 8px;font-size:10px;color:var(--ink3);display:flex;gap:4px;align-items:center">\u{1F4C5} Scheduled times only</div>';
-  upcoming.forEach((s, i) => {
-    const isNext = i === 0;
+  stops.forEach((s, i) => {
+    const state = s.timelineStatus || (i === 0 ? 'next' : 'upcoming');
+    const isPast = state === 'passed';
+    const isCurrent = state === 'current';
+    const isNext = state === 'next';
     const rtIso  = s.arrivalTime || s.departureTime;
     const delay  = fmtDelay(deriveDelaySeconds(s));
     const mins   = minsUntil(rtIso);
     const cd     = mins !== null ? fmtCountdown(mins) : null;
     const schedDisplay = scheduledTimeDisplay(s.scheduledTime);
     let timeHtml = '';
-    if (isNext && cd) {
+    if (isPast) {
+      timeHtml = '<span class="stop-sched">' + schedDisplay + '</span><span class="stop-delay ontime">Passed</span>';
+    } else if (isCurrent) {
+      timeHtml = '<span class="stop-delay ontime">Current stop</span>';
+      if (schedDisplay) timeHtml = '<span class="stop-sched">' + schedDisplay + '</span> ' + timeHtml;
+      if (rtIso) timeHtml += '<span class="stop-rt" style="color:' + (delay?.color || dc) + '">' + fmtTime(rtIso) + '</span>';
+    } else if (isNext && cd) {
       const key = 'eta-tl-' + (rtIso||i);
       S.etaTargets[key] = { iso: rtIso };
       timeHtml = '<span class="eta-pill ' + cd.cls + '" data-eta="' + key + '" style="font-size:11px;padding:2px 7px">' + cd.text + '</span>';
     } else if (rtIso) {
       timeHtml = '<span class="stop-rt" style="color:' + (delay?.color || 'var(--ok)') + '">' + fmtTime(rtIso) + '</span>';
     }
-    if (s.scheduledTime && !isNext) timeHtml = '<span class="stop-sched">' + schedDisplay + '</span> ' + timeHtml;
-    if (delay && !isNext) timeHtml += '<span class="stop-delay ' + delay.cls + '">' + delay.label + '</span>';
+    if (s.scheduledTime && !isNext && !isCurrent && !isPast) timeHtml = '<span class="stop-sched">' + schedDisplay + '</span> ' + timeHtml;
+    if (delay && !isNext && !isCurrent && !isPast) timeHtml += '<span class="stop-delay ' + delay.cls + '">' + delay.label + '</span>';
+    const dotClass = isPast ? ' past' : isCurrent ? ' cur nxt' : isNext ? ' nxt' : '';
+    const dotStyle = isPast
+      ? ''
+      : (isCurrent || isNext)
+        ? 'background:' + dc + ';border-color:' + dc + ';box-shadow:0 0 0 3px ' + dlt
+        : '';
+    const label = isPast ? '(passed)' : isCurrent ? '(current)' : isNext ? '(next)' : '';
     html += '<div class="stop-row">'
-      + '<div class="stop-spine"><div class="stop-dot' + (isNext ? ' nxt' : '') + '" style="' + (isNext ? 'background:' + dc + ';border-color:' + dc + ';box-shadow:0 0 0 3px ' + dlt : '') + '"></div>' + (i < upcoming.length-1 ? '<div class="stop-conn"></div>' : '') + '</div>'
+      + '<div class="stop-spine"><div class="stop-dot' + dotClass + '" style="' + dotStyle + '"></div>' + (i < stops.length-1 ? '<div class="stop-conn"></div>' : '') + '</div>'
       + '<div class="stop-content">'
-      + '<div class="stop-nm" style="' + (isNext ? 'color:' + dc + ';font-weight:700' : '') + '">' + (s.stopName||s.stopId) + (isNext ? '<span style="font-size:9px;opacity:.7;margin-left:4px">(next)</span>' : '') + '</div>'
+      + '<div class="stop-nm" style="' + ((isNext || isCurrent) ? 'color:' + dc + ';font-weight:700' : (isPast ? 'color:var(--ink3)' : '')) + '">' + (s.stopName||s.stopId) + (label ? '<span style="font-size:9px;opacity:.7;margin-left:4px">' + label + '</span>' : '') + '</div>'
       + '<div class="stop-times">' + timeHtml + '</div>'
       + '</div></div>';
   });
@@ -1813,8 +1947,17 @@ function renderStopTimelineDirect(upcoming, type, hasRT) {
 function renderStopTimeline(stops, curSeq, type, hasRT) {
   const el = document.getElementById('stops-zone');
   if (!el) return;
-  const upcoming = stops.filter(s => (s.sequence || 0) >= (curSeq || 0));
-  renderStopTimelineRows(el, upcoming, type, hasRT);
+  const currentIdx = Math.max(stops.findIndex(s => (s.sequence || 0) >= (curSeq || 0)), 0);
+  const startIdx = Math.max(0, currentIdx - 3);
+  const visible = stops.slice(startIdx).map((s, idx) => {
+    const absoluteIdx = startIdx + idx;
+    let timelineStatus = 'upcoming';
+    if (absoluteIdx < currentIdx) timelineStatus = 'passed';
+    else if (absoluteIdx === currentIdx) timelineStatus = 'current';
+    else if (absoluteIdx === currentIdx + 1) timelineStatus = 'next';
+    return { ...s, timelineStatus };
+  });
+  renderStopTimelineRows(el, visible, type, hasRT);
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1887,6 +2030,7 @@ function pickStop(stopObj) {
   document.getElementById('search-in').value='';
   document.getElementById('search-clear').classList.remove('show');
   document.getElementById('search-drop').classList.remove('show');
+  S.stopBoardRequestId++;
   S.selectedStop=stopObj; S.mode='stop'; S.selectedId=null; S.stopShowAll=false;
   document.getElementById('detail').classList.remove('open');
   syncControlState();
@@ -1915,13 +2059,22 @@ async function fetchVehicles() {
     }
     // Live update detail panel if open
     if (S.selectedId) {
-      const sv=S.vehicles.find(x=>x.vehicleId===S.selectedId);
+      let sv=S.vehicles.find(x=>x.vehicleId===S.selectedId);
+      try {
+        const detail = await fetch(`/api/vehicles/${S.selectedId}`).then(r=>r.json());
+        if (detail?.vehicleId === S.selectedId) {
+          sv = detail;
+          const idx = S.vehicles.findIndex(x=>x.vehicleId===S.selectedId);
+          if (idx > -1) S.vehicles[idx] = detail;
+        }
+      } catch {}
       if (sv) {
         // â”€â”€ Update KPIs â”€â”€
         const la=document.getElementById('gv-lat'); if(la) la.textContent=sv.lat.toFixed(6);
         const lo=document.getElementById('gv-lon'); if(lo) lo.textContent=sv.lon.toFixed(6);
         const ks=document.getElementById('kv-spd'); if(ks){ks.textContent=sv.speed>0.5?Math.round(sv.speed):'0';ks.style.color=sv.speed>0.5?'var(--ok)':'var(--stopped)';}
-        const kb=document.getElementById('kv-brg'); if(kb) kb.textContent=Math.round(sv.bearing||0)+'°';
+        const kc=document.getElementById('kv-cur'); if(kc) kc.textContent=vehicleCurrentStop(sv)?.stopName||vehicleCurrentStop(sv)?.stopId||'Unavailable';
+        const kn=document.getElementById('kv-nxt'); if(kn) kn.textContent=vehicleNextStop(sv)?.stopName||vehicleNextStop(sv)?.stopId||'Unavailable';
 
         // â”€â”€ Update crowd bar (trams) â”€â”€
         if (sv.routeType==='tram'&&sv.occupancy) {
@@ -1940,7 +2093,7 @@ async function fetchVehicles() {
 
         // Re-render timeline if: seq changed, OR upcomingStops changed (server filtered by time)
         const stopsChanged = prevSeq !== currSeq ||
-          (sv.upcomingStops?.length && sv.upcomingStops[0]?.stopId !== S.prevFirstStopId);
+          (sv.upcomingStops?.length && (sv.upcomingStops[0]?.stopId + ':' + (sv.upcomingStops[0]?.timelineStatus||'')) !== S.prevFirstStopId);
 
         if (stopsChanged) {
           if (sv.upcomingStops?.length) {
@@ -1955,7 +2108,7 @@ async function fetchVehicles() {
             const td = S.tripCache[sv.tripId];
             renderStopTimeline(td.stops||[], currSeq, sv.routeType, td.hasRealtime);
           }
-          S.prevFirstStopId = sv.upcomingStops?.[0]?.stopId;
+          S.prevFirstStopId = sv.upcomingStops?.length ? (sv.upcomingStops[0]?.stopId + ':' + (sv.upcomingStops[0]?.timelineStatus||'')) : null;
 
           // Update delay KPI from first upcoming stop
           const ns = firstDelayedStop(sv.upcomingStops);
@@ -1973,7 +2126,7 @@ async function fetchVehicles() {
         }
       }
     }
-    if (S.mode!=='stop') renderSidebar();
+    renderSidebar();
     updateMarkers();
   } catch(e) { console.error('[Vehicles]',e.message); }
 }
@@ -2077,6 +2230,14 @@ function initMobileSheets() {
     document.getElementById('detail').classList.remove('expanded');
   });
 }
+
+map.on('moveend zoomend resize', () => {
+  mapInteractionActive = false;
+  updateMarkers();
+});
+map.on('movestart zoomstart', () => {
+  mapInteractionActive = true;
+});
 
 let pollIntervalTimer;
 
