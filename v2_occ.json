@@ -1,0 +1,121 @@
+{
+  "total": 423,
+  "withOcc": 423,
+  "sample": [
+    {
+      "id": "V10288141007",
+      "vehicle": {
+        "trip": {
+          "tripId": "1028814",
+          "startDate": "20260316",
+          "scheduleRelationship": "SCHEDULED",
+          "routeId": "H21",
+          "directionId": 1
+        },
+        "position": {
+          "latitude": -34.92440414428711,
+          "longitude": 138.59144592285156,
+          "bearing": 282.8599853515625,
+          "speed": 0
+        },
+        "timestamp": "1773628570",
+        "vehicle": {
+          "id": "1007",
+          "label": "1007"
+        }
+      }
+    },
+    {
+      "id": "V1132252101",
+      "vehicle": {
+        "trip": {
+          "tripId": "1132252",
+          "startDate": "20260316",
+          "scheduleRelationship": "SCHEDULED",
+          "routeId": "BTANIC",
+          "directionId": 0
+        },
+        "position": {
+          "latitude": -34.92121124267578,
+          "longitude": 138.6060791015625,
+          "bearing": 266.42999267578125,
+          "speed": 0
+        },
+        "timestamp": "1773628572",
+        "vehicle": {
+          "id": "101",
+          "label": "101"
+        }
+      }
+    },
+    {
+      "id": "V1132469102",
+      "vehicle": {
+        "trip": {
+          "tripId": "1132469",
+          "startDate": "20260316",
+          "scheduleRelationship": "SCHEDULED",
+          "routeId": "GLNELG",
+          "directionId": 1
+        },
+        "position": {
+          "latitude": -34.92161560058594,
+          "longitude": 138.59811401367188,
+          "bearing": 81.12000274658203,
+          "speed": 0.4000000059604645
+        },
+        "timestamp": "1773628576",
+        "vehicle": {
+          "id": "102",
+          "label": "102"
+        }
+      }
+    },
+    {
+      "id": "V10293421021",
+      "vehicle": {
+        "trip": {
+          "tripId": "1029342",
+          "startDate": "20260316",
+          "scheduleRelationship": "SCHEDULED",
+          "routeId": "W91C",
+          "directionId": 0
+        },
+        "position": {
+          "latitude": -34.93498229980469,
+          "longitude": 138.5943603515625,
+          "bearing": 0.8399999737739563,
+          "speed": 0
+        },
+        "timestamp": "1773628572",
+        "vehicle": {
+          "id": "1021",
+          "label": "1021"
+        }
+      }
+    },
+    {
+      "id": "V10745111024",
+      "vehicle": {
+        "trip": {
+          "tripId": "1074511",
+          "startDate": "20260316",
+          "scheduleRelationship": "SCHEDULED",
+          "routeId": "167C",
+          "directionId": 1
+        },
+        "position": {
+          "latitude": -34.9419059753418,
+          "longitude": 138.57589721679688,
+          "bearing": 266.3599853515625,
+          "speed": 12.399999618530273
+        },
+        "timestamp": "1773628565",
+        "vehicle": {
+          "id": "1024",
+          "label": "1024"
+        }
+      }
+    }
+  ]
+}

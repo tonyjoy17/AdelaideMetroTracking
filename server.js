@@ -6,6 +6,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const https = require('https');
 const fs = require('fs/promises');
 const path = require('path');
@@ -15,6 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
+app.use(compression({ threshold: 1024 }));
 app.use(express.static(__dirname));
 
 const V1 = 'https://gtfs.adelaidemetro.com.au/v1/realtime';
@@ -61,6 +63,9 @@ const CACHE_LIMITS = {
   departuresByStop: 500,
 };
 
+const sseClients = new Set();
+const SSE_PING_MS = 25000;
+
 function rememberInMap(map, key, value, limit) {
   if (map.has(key)) map.delete(key);
   map.set(key, value);
@@ -75,6 +80,77 @@ function clearRuntimeCaches() {
   store.caches.departuresByStop.clear();
   store.shapesById = null;
 }
+
+function matchedAlertsForVehicle(vehicle) {
+  return store.alerts.filter((alert) => alert.routes.includes(vehicle.routeId) || alert.routes.includes(vehicle.routeShort));
+}
+
+function serializeVehicleSummary(vehicle) {
+  return {
+    vehicleId: vehicle.vehicleId,
+    label: vehicle.label,
+    tripId: vehicle.tripId,
+    routeId: vehicle.routeId,
+    routeShort: vehicle.routeShort,
+    routeLong: vehicle.routeLong,
+    routeType: vehicle.routeType,
+    headsign: vehicle.headsign,
+    shapeId: vehicle.shapeId,
+    directionId: vehicle.directionId,
+    lat: vehicle.lat,
+    lon: vehicle.lon,
+    bearing: vehicle.bearing,
+    speed: vehicle.speed,
+    status: vehicle.status,
+    stopSeq: vehicle.stopSeq,
+    timestamp: vehicle.timestamp,
+    occupancy: vehicle.occupancy,
+    alertCount: matchedAlertsForVehicle(vehicle).length,
+  };
+}
+
+function vehiclesPayload() {
+  return {
+    timestamp: store.lastUpdated.vehicles,
+    count: store.vehicles.length,
+    vehicles: store.vehicles.map(serializeVehicleSummary),
+  };
+}
+
+function alertsPayload() {
+  return {
+    timestamp: store.lastUpdated.alerts,
+    count: store.alerts.length,
+    alerts: store.alerts,
+  };
+}
+
+function writeSseEvent(res, event, payload) {
+  res.write('event: ' + event + '\n');
+  res.write('data: ' + JSON.stringify(payload) + '\n\n');
+}
+
+function broadcastSse(event, payload) {
+  for (const client of [...sseClients]) {
+    try {
+      writeSseEvent(client, event, payload);
+    } catch (error) {
+      sseClients.delete(client);
+      try { client.end(); } catch {}
+    }
+  }
+}
+
+setInterval(() => {
+  for (const client of [...sseClients]) {
+    try {
+      client.write(': ping\n\n');
+    } catch (error) {
+      sseClients.delete(client);
+      try { client.end(); } catch {}
+    }
+  }
+}, SSE_PING_MS);
 
 function fetchBuf(url) {
   return new Promise((resolve, reject) => {
@@ -336,6 +412,7 @@ async function pollVehicles() {
     store.lastUpdated.vehicles = new Date().toISOString();
     delete store.errors.vehicles;
     console.log(`[Vehicles] ${store.vehicles.length} (${Object.keys(occupancyMap).length} with occupancy)`);
+    broadcastSse('vehicles', vehiclesPayload());
   } catch (e) {
     console.error('[Vehicles]', e.message);
     store.errors.vehicles = e.message;
@@ -428,6 +505,7 @@ async function pollAlerts() {
     store.lastUpdated.alerts = new Date().toISOString();
     delete store.errors.alerts;
     console.log(`[Alerts] ${store.alerts.length}`);
+    broadcastSse('alerts', alertsPayload());
   } catch (e) {
     console.error('[Alerts]', e.message);
     store.errors.alerts = e.message;
@@ -540,24 +618,36 @@ function scheduleDailyStaticReload() {
   }, delay);
 }
 
-app.get('/api/vehicles', (req, res) => {
-  res.json({
-    timestamp: store.lastUpdated.vehicles,
-    count: store.vehicles.length,
-    vehicles: store.vehicles.map((v) => ({
-      ...v,
-      alerts: store.alerts.filter((a) => a.routes.includes(v.routeId) || a.routes.includes(v.routeShort)),
-    })),
+app.get('/api/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  sseClients.add(res);
+  writeSseEvent(res, 'ready', { ok: true });
+  if (store.lastUpdated.vehicles) writeSseEvent(res, 'vehicles', vehiclesPayload());
+  if (store.lastUpdated.alerts) writeSseEvent(res, 'alerts', alertsPayload());
+
+  req.on('close', () => {
+    sseClients.delete(res);
+    res.end();
   });
+});
+
+app.get('/api/vehicles', (req, res) => {
+  res.json(vehiclesPayload());
 });
 
 app.get('/api/vehicles/:id', (req, res) => {
   const v = store.vehicles.find((x) => x.vehicleId === req.params.id);
   if (!v) return res.status(404).json({ error: 'not found' });
+  const alerts = matchedAlertsForVehicle(v);
   res.json({
-    ...v,
+    ...serializeVehicleSummary(v),
     upcomingStops: upcomingStopsFor(v),
-    alerts: store.alerts.filter((a) => a.routes.includes(v.routeId) || a.routes.includes(v.routeShort)),
+    alerts,
   });
 });
 
@@ -578,11 +668,7 @@ app.get('/api/trips/:tripId', (req, res) => {
 });
 
 app.get('/api/alerts', (req, res) => {
-  res.json({
-    timestamp: store.lastUpdated.alerts,
-    count: store.alerts.length,
-    alerts: store.alerts,
-  });
+  res.json(alertsPayload());
 });
 
 app.get('/api/shape/:shapeId', async (req, res) => {
