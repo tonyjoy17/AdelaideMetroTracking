@@ -27,6 +27,7 @@ const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const UI_DEBOUNCE_MS = 120;
+let actionFeedbackTimer = null;
 
 function vehicleAlertCount(v) {
   return v?.alertCount ?? v?.alerts?.length ?? 0;
@@ -38,6 +39,26 @@ function setHtmlIfChanged(el, html) {
   el.innerHTML = html;
   htmlCache.set(el, html);
   return true;
+}
+
+function showActionFeedback(message) {
+  const overlay = document.getElementById('action-feedback');
+  const text = document.getElementById('action-feedback-text');
+  if (!overlay || !text) return;
+  if (actionFeedbackTimer) clearTimeout(actionFeedbackTimer);
+  text.textContent = message || 'Working...';
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+function hideActionFeedback(delay = 0) {
+  const overlay = document.getElementById('action-feedback');
+  if (!overlay) return;
+  if (actionFeedbackTimer) clearTimeout(actionFeedbackTimer);
+  actionFeedbackTimer = setTimeout(() => {
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+  }, delay);
 }
 
 function debounce(fn, wait = UI_DEBOUNCE_MS) {
@@ -566,6 +587,7 @@ function drawShape(shapeId, type) {
 }
 
 function resetView() {
+  showActionFeedback('Returning to map...');
   S.followMode=false;
   document.getElementById('mc-follow').classList.remove('on');
   document.getElementById('detail').classList.remove('follow-compact');
@@ -573,6 +595,7 @@ function resetView() {
   updateDetailActionButtons();
   syncControlState();
   map.setView(ADELAIDE,12,{animate:true});
+  hideActionFeedback(450);
 }
 function focusStopOnMap(stop) {
   if (!stop?.lat || !stop?.lon) return;
@@ -606,6 +629,7 @@ function restoreFullMapFromNearby() {
   map.setView(ADELAIDE,12,{animate:true});
 }
 function toggleFollow() {
+  showActionFeedback(S.followMode ? 'Stopping follow...' : 'Following vehicle...');
   S.followMode = !S.followMode;
   document.getElementById('mc-follow').classList.toggle('on', S.followMode);
   const detail = document.getElementById('detail');
@@ -626,6 +650,7 @@ function toggleFollow() {
   updateMarkers();
   updateDetailActionButtons();
   syncControlState();
+  hideActionFeedback(450);
 }
 function locateMe() {
   if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
@@ -671,6 +696,7 @@ async function showNearby() {
   document.getElementById('detail').classList.remove('open');
   document.getElementById('mc-nearby').classList.add('on');
   if (isMobile()) mobDrawerOpen();
+  showActionFeedback('Finding nearby stops...');
   const scroll=document.getElementById('sb-scroll');
   setHtmlIfChanged(scroll, `<div class="empty"><div class="empty-i" style="animation:spin 1s linear infinite;display:inline-block">📍</div><div class="empty-t">Finding nearby stops...</div></div>`);
   try {
@@ -681,8 +707,10 @@ async function showNearby() {
       .filter(s=>s.dist<=800).sort((a,b)=>a.dist-b.dist).slice(0,25);
     S.nearbyStops=stops;
     renderNearby(scroll);
+    hideActionFeedback(250);
   } catch(e) {
     setHtmlIfChanged(scroll, `<div class="empty"><div class="empty-i">⚠️</div><div class="empty-t">Could not load nearby stops</div></div>`);
+    hideActionFeedback(250);
   }
 }
 
@@ -747,6 +775,7 @@ function renderSidebar() {
   updateTabCounts();
   const scroll = document.getElementById('sb-scroll');
   if (S.mode==='stop' && S.selectedStop) { renderStopBoard(scroll); return; }
+  if (S.mode==='nearby') { renderNearby(scroll); return; }
   if (S.mode==='alerts') { renderAlerts(scroll); return; }
   if (S.mode==='planner') { renderPlanner(scroll); return; }
   if (S.mode==='favorites') { renderFavorites(scroll); return; }
@@ -1116,6 +1145,7 @@ function selectVehicle(id) {
 }
 
 function closeDetail() {
+  showActionFeedback('Returning to map...');
   S.selectedId = null;
   if (S.followMode) {
     S.followMode = false;
@@ -1128,6 +1158,7 @@ function closeDetail() {
   renderSidebar(); updateMarkers();
   syncControlState();
   map.setView(ADELAIDE,12,{animate:true});
+  hideActionFeedback(450);
 }
 
 function toggleFav() {
