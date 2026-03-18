@@ -342,7 +342,7 @@ function stopBoardVisibleServices(allServices) {
 }
 
 function canDeferSidebarRender() {
-  return ['list', 'favorites', 'alerts'].includes(S.mode) && sidebarScrollActive;
+  return sidebarScrollActive && !S.selectedId && ['list', 'stop', 'nearby', 'favorites', 'alerts', 'planner'].includes(S.mode);
 }
 
 function flushDeferredSidebarRender() {
@@ -360,7 +360,7 @@ function isSearchBrowsingActive() {
 }
 
 function shouldFreezeLiveUiUpdates() {
-  return sidebarScrollActive && isSearchBrowsingActive() && S.mode === 'list' && !S.selectedId && !S.selectedStop;
+  return sidebarScrollActive && !S.selectedId && ['list', 'stop', 'nearby', 'favorites', 'alerts', 'planner'].includes(S.mode);
 }
 
 function dedupeStopBoardServices(services) {
