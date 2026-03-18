@@ -32,6 +32,8 @@ let stopSearchIndexPromise = null;
 let sidebarScrollActive = false;
 let sidebarScrollTimer = null;
 let pendingSidebarRender = false;
+let pendingVehiclesPayload = null;
+let pendingAlertsPayload = null;
 
 function vehicleAlertCount(v) {
   return v?.alertCount ?? v?.alerts?.length ?? 0;
@@ -143,6 +145,7 @@ function clearFilters() {
   renderSidebar();
   updateMarkers();
   syncControlState();
+  flushFrozenLiveUiUpdates();
 }
 
 function openFavorites() {
@@ -346,6 +349,18 @@ function flushDeferredSidebarRender() {
   if (!pendingSidebarRender) return;
   pendingSidebarRender = false;
   renderSidebar();
+}
+
+function isSearchBrowsingActive() {
+  const searchInput = document.getElementById('search-in');
+  const searchDrop = document.getElementById('search-drop');
+  const hasSearchText = !!searchInput?.value?.trim();
+  const searchOpen = !!searchDrop?.classList.contains('show');
+  return !!(S.filterRoute || hasSearchText || searchOpen);
+}
+
+function shouldFreezeLiveUiUpdates() {
+  return sidebarScrollActive && isSearchBrowsingActive() && S.mode === 'list' && !S.selectedId && !S.selectedStop;
 }
 
 function dedupeStopBoardServices(services) {
@@ -1581,7 +1596,7 @@ document.getElementById('search-in').addEventListener('input', e => {
   const q=e.target.value.trim();
   document.getElementById('search-clear').classList.toggle('show',q.length>0);
   clearTimeout(searchTimer);
-  if (q.length<2) { document.getElementById('search-drop').classList.remove('show'); return; }
+  if (q.length<2) { document.getElementById('search-drop').classList.remove('show'); flushFrozenLiveUiUpdates(); return; }
   searchTimer=setTimeout(()=>doSearch(q),260);
 });
 document.getElementById('search-in').addEventListener('focus', () => {
@@ -1592,10 +1607,13 @@ document.getElementById('search-clear').addEventListener('click', () => {
   document.getElementById('search-in').value='';
   document.getElementById('search-clear').classList.remove('show');
   document.getElementById('search-drop').classList.remove('show');
+  flushFrozenLiveUiUpdates();
 });
 document.addEventListener('click', e => {
-  if (!document.getElementById('search-wrap').contains(e.target))
+  if (!document.getElementById('search-wrap').contains(e.target)) {
     document.getElementById('search-drop').classList.remove('show');
+    flushFrozenLiveUiUpdates();
+  }
 });
 
 async function doSearch(q) {
@@ -1678,6 +1696,31 @@ const scheduleVehicleUiRefresh = debounce(() => {
   updateMarkers();
 }, UI_DEBOUNCE_MS);
 
+async function applyVehiclesPayloadNow(data) {
+  S.vehicles = data.vehicles || [];
+  if (data.timestamp) {
+    document.getElementById('feed-time').textContent = new Date(data.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'});
+  }
+  if (S.selectedId) await refreshSelectedVehicleDetail();
+  scheduleVehicleUiRefresh();
+}
+
+function applyAlertsPayloadNow(data) {
+  S.alerts = data.alerts || [];
+  updateTabCounts();
+  if (S.mode === 'alerts') renderSidebar();
+}
+
+async function flushFrozenLiveUiUpdates() {
+  if (shouldFreezeLiveUiUpdates()) return;
+  const nextVehicles = pendingVehiclesPayload;
+  const nextAlerts = pendingAlertsPayload;
+  pendingVehiclesPayload = null;
+  pendingAlertsPayload = null;
+  if (nextVehicles) await applyVehiclesPayloadNow(nextVehicles);
+  if (nextAlerts) applyAlertsPayloadNow(nextAlerts);
+}
+
 async function refreshSelectedVehicleDetail() {
   if (!S.selectedId) return;
   let sv = S.vehicles.find(x => x.vehicleId === S.selectedId);
@@ -1739,18 +1782,19 @@ async function refreshSelectedVehicleDetail() {
 }
 
 async function applyVehiclesPayload(data) {
-  S.vehicles = data.vehicles || [];
-  if (data.timestamp) {
-    document.getElementById('feed-time').textContent = new Date(data.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'});
+  if (shouldFreezeLiveUiUpdates()) {
+    pendingVehiclesPayload = data;
+    return;
   }
-  if (S.selectedId) await refreshSelectedVehicleDetail();
-  scheduleVehicleUiRefresh();
+  await applyVehiclesPayloadNow(data);
 }
 
 function applyAlertsPayload(data) {
-  S.alerts = data.alerts || [];
-  updateTabCounts();
-  if (S.mode === 'alerts') renderSidebar();
+  if (shouldFreezeLiveUiUpdates()) {
+    pendingAlertsPayload = data;
+    return;
+  }
+  applyAlertsPayloadNow(data);
 }
 
 async function fetchVehicles() {
@@ -1921,6 +1965,7 @@ function initSidebarScrollGuard() {
     sidebarScrollTimer = setTimeout(() => {
       sidebarScrollActive = false;
       flushDeferredSidebarRender();
+      flushFrozenLiveUiUpdates();
     }, 220);
   };
   scroll.addEventListener('scroll', markScrolling, { passive: true });
