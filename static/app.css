@@ -581,7 +581,7 @@ body.theme-night .leaflet-container{background:#07111f}
     pointer-events:auto;
   }
   #detail.follow-compact{ --sheet-peek:var(--peek-follow); }
-  #detail.open{ display:block; }
+  #detail.open{ display:flex; }
   #detail.open{ transform:translateY(calc(var(--expanded) - var(--sheet-peek))); }
   #detail.open.expanded{ transform:translateY(0); }
 
