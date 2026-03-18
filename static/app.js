@@ -27,6 +27,7 @@ const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const UI_DEBOUNCE_MS = 120;
+const SIDEBAR_SCROLL_RESUME_MS = 15_000;
 let actionFeedbackTimer = null;
 let stopSearchIndexPromise = null;
 let sidebarScrollActive = false;
@@ -1592,6 +1593,18 @@ function renderStopTimeline(stops, curSeq, type, hasRT) {
 // SEARCH
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 let searchTimer=null;
+const searchInputEl = document.getElementById('search-in');
+const searchRowEl = document.querySelector('#search-wrap .search-row');
+if (searchRowEl) {
+  searchRowEl.addEventListener('click', e => {
+    if (e.target.closest('#search-clear')) return;
+    searchInputEl?.focus();
+  });
+  searchRowEl.addEventListener('touchend', e => {
+    if (e.target.closest('#search-clear')) return;
+    searchInputEl?.focus();
+  }, { passive: true });
+}
 document.getElementById('search-in').addEventListener('input', e => {
   const q=e.target.value.trim();
   document.getElementById('search-clear').classList.toggle('show',q.length>0);
@@ -1676,6 +1689,7 @@ function pickStop(stopObj) {
   showActionFeedback('Loading stop details...');
   syncControlState();
   renderSidebar();
+  if (isMobile()) mobDrawerOpen();
   if (stopObj.lat&&stopObj.lon) map.panTo([stopObj.lat,stopObj.lon],{animate:true});
 }
 function filterByRoute(rs) {
@@ -1966,7 +1980,7 @@ function initSidebarScrollGuard() {
       sidebarScrollActive = false;
       flushDeferredSidebarRender();
       flushFrozenLiveUiUpdates();
-    }, 220);
+    }, SIDEBAR_SCROLL_RESUME_MS);
   };
   scroll.addEventListener('scroll', markScrolling, { passive: true });
   scroll.addEventListener('touchstart', markScrolling, { passive: true });
