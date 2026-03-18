@@ -576,7 +576,8 @@ body.theme-night .leaflet-container{background:#07111f}
     box-shadow:0 -8px 40px rgba(0,0,0,.18);
     transform:translateY(100%);
     transition:transform .32s cubic-bezier(.22,1,.36,1);
-    z-index:160;
+    z-index:230;
+    pointer-events:auto;
   }
   #detail.follow-compact{ --sheet-peek:var(--peek-follow); }
   #detail.open{ transform:translateY(calc(var(--expanded) - var(--sheet-peek))); }

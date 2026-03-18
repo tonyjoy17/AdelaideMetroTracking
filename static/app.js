@@ -140,6 +140,7 @@ function updateDetailActionButtons() {
 }
 
 function clearFilters() {
+  resetSidebarInteractionFreeze();
   S.filterRoute = null;
   S.tab = 'all';
   S.mode = 'list';
@@ -353,6 +354,15 @@ function flushDeferredSidebarRender() {
   if (!pendingSidebarRender) return;
   pendingSidebarRender = false;
   renderSidebar();
+}
+
+function resetSidebarInteractionFreeze() {
+  sidebarScrollActive = false;
+  pendingSidebarRender = false;
+  if (sidebarScrollTimer) {
+    clearTimeout(sidebarScrollTimer);
+    sidebarScrollTimer = null;
+  }
 }
 
 function isSearchBrowsingActive() {
@@ -958,6 +968,7 @@ function getFiltered() {
 }
 
 function setTab(t, el) {
+  resetSidebarInteractionFreeze();
   S.tab=t; S.filterRoute=null;
   S.mode = t==='alerts'?'alerts':'list';
   S.selectedStop=null;
@@ -1426,13 +1437,13 @@ function renderDetailContent(v) {
   document.getElementById('dp-content').innerHTML=`
     <div class="detail-actions">
       <div class="detail-actions-row">
-        <button class="detail-action-btn" onclick="closeDetail()" aria-label="Go back to map">
+        <button class="detail-action-btn" onclick="closeDetail()" ontouchend="event.preventDefault(); closeDetail()" aria-label="Go back to map">
           <span class="ico">←</span><span>Back to map</span>
         </button>
-        <button class="detail-action-btn${S.followMode?' on':''}" id="dp-follow" onclick="toggleFollow()" aria-label="Toggle follow selected vehicle" aria-pressed="${S.followMode?'true':'false'}">
+        <button class="detail-action-btn${S.followMode?' on':''}" id="dp-follow" onclick="toggleFollow()" ontouchend="event.preventDefault(); toggleFollow()" aria-label="Toggle follow selected vehicle" aria-pressed="${S.followMode?'true':'false'}">
           <span class="ico">◎</span><span>${S.followMode?'Following vehicle':'Follow vehicle'}</span>
         </button>
-        <button class="detail-action-btn${favActive?' fav-on':''}" id="dp-fav" onclick="toggleFav()" aria-label="Toggle favorite vehicle" aria-pressed="${favActive?'true':'false'}">
+        <button class="detail-action-btn${favActive?' fav-on':''}" id="dp-fav" onclick="toggleFav()" ontouchend="event.preventDefault(); toggleFav()" aria-label="Toggle favorite vehicle" aria-pressed="${favActive?'true':'false'}">
           <span class="ico">${favActive?'★':'☆'}</span><span>${favActive?'Saved':'Save vehicle'}</span>
         </button>
       </div>
@@ -1709,6 +1720,7 @@ async function doSearch(q) {
 }
 
 function pickStop(stopObj) {
+  resetSidebarInteractionFreeze();
   document.getElementById('search-in').value='';
   document.getElementById('search-clear').classList.remove('show');
   document.getElementById('search-drop').classList.remove('show');
@@ -1723,6 +1735,7 @@ function pickStop(stopObj) {
 }
 function openSearchVehicle(vehicleId) {
   if (!vehicleId) return;
+  resetSidebarInteractionFreeze();
   searchInputEl?.blur();
   document.getElementById('search-in').value='';
   document.getElementById('search-clear').classList.remove('show');
@@ -1731,6 +1744,7 @@ function openSearchVehicle(vehicleId) {
   selectVehicle(vehicleId);
 }
 function filterByRoute(rs) {
+  resetSidebarInteractionFreeze();
   document.getElementById('search-in').value='';
   document.getElementById('search-clear').classList.remove('show');
   document.getElementById('search-drop').classList.remove('show');
