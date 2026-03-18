@@ -28,6 +28,10 @@ const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const UI_DEBOUNCE_MS = 120;
 let actionFeedbackTimer = null;
+let stopSearchIndexPromise = null;
+let sidebarScrollActive = false;
+let sidebarScrollTimer = null;
+let pendingSidebarRender = false;
 
 function vehicleAlertCount(v) {
   return v?.alertCount ?? v?.alerts?.length ?? 0;
@@ -76,6 +80,16 @@ function getActiveFilterMeta() {
   if (S.tab === 'bus') return { kind:'type', label:'Buses only', short:'Buses' };
   if (S.tab === 'alerts') return { kind:'type', label:'Vehicles with alerts', short:'Alerts' };
   return null;
+}
+
+function isFocusedTransportTab() {
+  return !S.filterRoute && ['tram', 'train', 'bus'].includes(S.tab);
+}
+
+function vehiclesForMapView() {
+  if (!isMobile()) return S.vehicles;
+  if (isFocusedTransportTab() || S.tab === 'alerts') return getFiltered();
+  return S.vehicles;
 }
 
 function syncTabButtons() {
@@ -298,6 +312,71 @@ function upcomingDeparturesOnly(departures) {
     const ts = departureTs(dep);
     return ts == null || ts >= now - 60000;
   });
+}
+
+function stopBoardVisibleServices(allServices) {
+  const upcoming = upcomingDeparturesOnly(allServices);
+  const baseList = upcoming.length ? upcoming : allServices;
+  const now = Date.now();
+  const withinHour = upcoming.filter(dep => {
+    const ts = departureTs(dep);
+    return ts == null || ts <= now + 60 * 60 * 1000;
+  });
+
+  if (withinHour.length > 5) {
+    return {
+      upcoming,
+      visible: withinHour,
+      mode: 'hour_window',
+    };
+  }
+
+  return {
+    upcoming,
+    visible: baseList.slice(0, 5),
+    mode: upcoming.length ? 'next_five' : 'available_five',
+  };
+}
+
+function canDeferSidebarRender() {
+  return ['list', 'favorites', 'alerts'].includes(S.mode) && sidebarScrollActive;
+}
+
+function flushDeferredSidebarRender() {
+  if (!pendingSidebarRender) return;
+  pendingSidebarRender = false;
+  renderSidebar();
+}
+
+function dedupeStopBoardServices(services) {
+  const unique = new Map();
+  services.forEach((dep) => {
+    const ts = departureTs(dep);
+    const scheduledTs = scheduledTimeTs(dep.scheduledTime);
+    const canonicalTs = dep.realtimeTime ? ts : scheduledTs ?? ts;
+    const timeKey = canonicalTs != null ? String(Math.round(canonicalTs / 30000)) : String(dep.scheduledTime || dep.realtimeTime || '');
+    const key = [
+      dep.routeShort || dep.routeId || '',
+      dep.headsign || '',
+      timeKey,
+    ].join('|');
+
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, dep);
+      return;
+    }
+
+    const existingTs = departureTs(existing);
+    const nextTs = ts;
+    const pickRealtime = !existing.realtimeTime && dep.realtimeTime;
+    const pickVehicle = !existing.vehicleId && dep.vehicleId;
+    const pickOccupancy = !existing.occupancy && dep.occupancy;
+    const pickEarlier = nextTs != null && (existingTs == null || nextTs < existingTs);
+    if (pickRealtime || pickVehicle || pickOccupancy || pickEarlier) unique.set(key, dep);
+  });
+
+  return [...unique.values()].sort((a, b) => (departureTs(a) ?? Number.MAX_SAFE_INTEGER) - (departureTs(b) ?? Number.MAX_SAFE_INTEGER));
 }
 function deriveDelaySeconds(item) {
   const explicit = Number(item?.delay || 0);
@@ -531,11 +610,12 @@ function animateMarkerTo(marker, toLat, toLon, ms) {
 }
 
 function updateMarkers() {
-  const filteredSet = new Set(getFiltered().map(v=>v.vehicleId));
+  const visibleVehicles = vehiclesForMapView();
+  const filteredSet = new Set(visibleVehicles.map(v=>v.vehicleId));
   const seen = new Set();
   const bounds = map.getBounds ? map.getBounds().pad(MARKER_VIEWPORT_PAD) : null;
 
-  S.vehicles.forEach(v => {
+  visibleVehicles.forEach(v => {
     if (!v.lat||!v.lon) return;
     if (!shouldRenderMarker(v, bounds)) return;
     seen.add(v.vehicleId);
@@ -711,6 +791,88 @@ function haversine(lat1,lon1,lat2,lon2){
 const fmtDist = m => m<1000?`${Math.round(m)}m`:`${(m/1000).toFixed(1)}km`;
 const walkMins= m => { const n=Math.round(m/80); return n<1?'< 1 min walk':`${n} min walk`; };
 
+function normalizeStopName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function stopSearchScore(stop, query) {
+  const q = query.toLowerCase();
+  const name = String(stop.name || '').toLowerCase();
+  const code = String(stop.code || '').toLowerCase();
+  const id = String(stop.stopId || '').toLowerCase();
+  if (name === q) return 0;
+  if (name.startsWith(q)) return 1;
+  if (code === q) return 2;
+  if (code.startsWith(q)) return 3;
+  if (id === q) return 4;
+  if (name.includes(q)) return 5;
+  if (code.includes(q)) return 6;
+  if (id.includes(q)) return 7;
+  return 99;
+}
+
+async function ensureStopSearchIndex() {
+  if (S.stopSearchIndex?.length) return S.stopSearchIndex;
+  if (Array.isArray(window.__STOP_SEARCH_INDEX__) && window.__STOP_SEARCH_INDEX__.length) {
+    S.stopSearchIndex = window.__STOP_SEARCH_INDEX__;
+    return S.stopSearchIndex;
+  }
+  if (!stopSearchIndexPromise) {
+    stopSearchIndexPromise = fetch('/api/stops/index')
+      .then(r => r.json())
+      .then(data => {
+        S.stopSearchIndex = data.stops || [];
+        return S.stopSearchIndex;
+      })
+      .catch(() => {
+        stopSearchIndexPromise = null;
+        return [];
+      });
+  }
+  return stopSearchIndexPromise;
+}
+
+function groupStopSearchResults(stops, query) {
+  const sorted = [...stops].sort((a, b) => {
+    const scoreDiff = stopSearchScore(a, query) - stopSearchScore(b, query);
+    if (scoreDiff) return scoreDiff;
+    const nameDiff = String(a.name || '').localeCompare(String(b.name || ''));
+    if (nameDiff) return nameDiff;
+    return String(a.code || a.stopId || '').localeCompare(String(b.code || b.stopId || ''));
+  });
+
+  const groups = [];
+  sorted.forEach((stop) => {
+    const key = normalizeStopName(stop.name);
+    const existing = groups.find((group) =>
+      group.key === key &&
+      haversine(group.anchor.lat, group.anchor.lon, stop.lat, stop.lon) <= 120
+    );
+    if (existing) {
+      existing.members.push(stop);
+      return;
+    }
+    groups.push({ key, anchor: stop, members: [stop] });
+  });
+
+  return groups.slice(0, 8).map((group) => {
+    const members = group.members;
+    const preferred = S.userPos
+      ? [...members].sort((a, b) => haversine(S.userPos.lat, S.userPos.lon, a.lat, a.lon) - haversine(S.userPos.lat, S.userPos.lon, b.lat, b.lon))[0]
+      : members[0];
+    const codes = [...new Set(members.map((s) => s.code).filter(Boolean))];
+    return {
+      ...preferred,
+      memberStopIds: members.map((s) => s.stopId),
+      variants: members.length,
+      variantCodes: codes,
+    };
+  });
+}
+
 async function showNearby() {
   if (!S.userPos) { locateMe(); return; }
   if (isMobile() && S.mode==='nearby' && document.getElementById('sidebar').classList.contains('drawer-open')) {
@@ -780,6 +942,12 @@ function setTab(t, el) {
   S.tab=t; S.filterRoute=null;
   S.mode = t==='alerts'?'alerts':'list';
   S.selectedStop=null;
+  S.selectedId=null;
+  S.followMode=false;
+  if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
+  if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
+  document.getElementById('mc-follow').classList.remove('on');
+  document.getElementById('detail').classList.remove('open','expanded','follow-compact');
   renderSidebar(); updateMarkers();
   syncControlState();
   if (isMobile()) mobileShowFilteredList();
@@ -798,6 +966,10 @@ function updateTabCounts() {
 }
 
 function renderSidebar() {
+  if (canDeferSidebarRender()) {
+    pendingSidebarRender = true;
+    return;
+  }
   updateTabCounts();
   const scroll = document.getElementById('sb-scroll');
   if (S.mode==='stop' && S.selectedStop) { renderStopBoard(scroll); return; }
@@ -814,9 +986,11 @@ function vehicleGroupsFor(list) {
     const fa=S.favs.includes(a.vehicleId)?0:1, fb=S.favs.includes(b.vehicleId)?0:1;
     if (fa!==fb) return fa-fb;
     if (to[a.routeType]!==to[b.routeType]) return to[a.routeType]-to[b.routeType];
-    const ma=a.speed>0.5?0:1, mb=b.speed>0.5?0:1;
-    if (ma!==mb) return ma-mb;
-    return b.speed-a.speed;
+    const latDiff = (b.lat || 0) - (a.lat || 0);
+    if (Math.abs(latDiff) > 0.0001) return latDiff;
+    const lonDiff = (a.lon || 0) - (b.lon || 0);
+    if (Math.abs(lonDiff) > 0.0001) return lonDiff;
+    return String(a.vehicleId || '').localeCompare(String(b.vehicleId || ''));
   });
   const groups={};
   sorted.forEach(v => {
@@ -1075,20 +1249,27 @@ function renderPlanner(scroll) {
 async function renderStopBoard(scroll) {
   const stop = S.selectedStop;
   const requestId = ++S.stopBoardRequestId;
-  setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name||stop.stopId}</div>${stop.code?`<div class="stop-id-sm">Stop ${stop.code}</div>`:''}</div></div></div><div class="empty"><div class="empty-i" style="animation:spin 1s linear infinite;display:inline-block">⏳</div><div class="empty-t">Loading departures...</div></div>`);
+  const stopLabel = stop.variants > 1
+    ? `${stop.variantCodes?.slice(0, 2).map(code => `Stop ${code}`).join(', ')}${(stop.variantCodes?.length || 0) > 2 ? ' +' : ''}`
+    : (stop.code ? `Stop ${stop.code}` : '');
+  setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name||stop.stopId}</div>${stopLabel?`<div class="stop-id-sm">${stopLabel}</div>`:''}</div></div></div><div class="empty"><div class="empty-i" style="animation:spin 1s linear infinite;display:inline-block">⏳</div><div class="empty-t">Loading departures...</div></div>`);
   try {
-    const data = await fetch(`/api/stops/${stop.stopId}/departures`).then(r=>r.json());
+    const stopIds = stop.memberStopIds?.length ? stop.memberStopIds : [stop.stopId];
+    const responses = await Promise.all(
+      stopIds.map(id => fetch(`/api/stops/${id}/departures`).then(r=>r.json()))
+    );
     if (requestId !== S.stopBoardRequestId || S.mode !== 'stop' || !S.selectedStop || S.selectedStop.stopId !== stop.stopId) return;
-    const allServices = (data.departures||[]).sort((a,b) => (departureTs(a) ?? Number.MAX_SAFE_INTEGER) - (departureTs(b) ?? Number.MAX_SAFE_INTEGER));
-    const upcoming = upcomingDeparturesOnly(allServices);
+    const mergedDepartures = responses.flatMap((data) => data.departures || []);
+    const allServices = dedupeStopBoardServices(mergedDepartures);
     if (!allServices.length) {
-      setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${data.stopName||stop.name}</div></div></div></div><div class="empty"><div class="empty-i">🚏</div><div class="empty-t">No departures found</div></div>`);
+      setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name}</div></div></div></div><div class="empty"><div class="empty-i">🚏</div><div class="empty-t">No departures found</div></div>`);
       hideActionFeedback(180);
       return;
     }
     resetEtaTargets();
-    const baseList = upcoming.length ? upcoming : allServices;
-    const visible = S.stopShowAll ? allServices : baseList.slice(0,6);
+    const stopBoardView = stopBoardVisibleServices(allServices);
+    const { upcoming } = stopBoardView;
+    const visible = S.stopShowAll ? allServices : stopBoardView.visible;
     let rows='';
     visible.forEach((d,i) => {
       const col=vColor(d.routeType,1), bg=vBg(d.routeType,1);
@@ -1104,12 +1285,14 @@ async function renderStopBoard(scroll) {
       </div>`;
     });
     const meta = S.stopShowAll
-      ? `Stop ${stop.stopId} · full service (${allServices.length})`
-      : upcoming.length
-        ? `Stop ${stop.stopId} · next available + ${Math.max(visible.length-1,0)} more`
-        : `Stop ${stop.stopId} · showing available services`;
+      ? `${stop.variants > 1 ? `${stopIds.length} stop points` : `Stop ${stop.stopId}`} · full service (${allServices.length})`
+      : stopBoardView.mode === 'hour_window'
+        ? `${stop.variants > 1 ? `${stopIds.length} stop points` : `Stop ${stop.stopId}`} · all services in the next hour (${visible.length})`
+        : stopBoardView.mode === 'next_five'
+          ? `${stop.variants > 1 ? `${stopIds.length} stop points` : `Stop ${stop.stopId}`} · next 5 services`
+          : `${stop.variants > 1 ? `${stopIds.length} stop points` : `Stop ${stop.stopId}`} · next 5 available services`;
     const moreBtn = !S.stopShowAll && allServices.length > visible.length ? `<div class="dep-actions"><button class="dep-more-btn" onclick="showAllStopServices()">Show full service (${allServices.length})</button></div>` : '';
-    setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${data.stopName||stop.name}</div><div class="stop-id-sm">${meta}</div></div></div></div>${rows}${moreBtn}`);
+    setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name}</div><div class="stop-id-sm">${meta}</div></div></div></div>${rows}${moreBtn}`);
     hideActionFeedback(180);
   } catch(e) {
     setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name}</div></div></div></div><div class="empty"><div class="empty-i">⚠️</div><div class="empty-t">Failed to load departures</div></div>`);
@@ -1439,13 +1622,22 @@ async function doSearch(q) {
 
   // Stops
   try {
-    const data=await fetch(`/api/stops/search?q=${encodeURIComponent(q)}`).then(r=>r.json());
-    if (data.stops?.length) {
+    const allStops = await ensureStopSearchIndex();
+    const matchedStops = allStops.filter(s =>
+      s.name?.toLowerCase().includes(ql) ||
+      s.code?.toLowerCase().includes(ql) ||
+      s.stopId?.toLowerCase().includes(ql)
+    );
+    const groupedStops = groupStopSearchResults(matchedStops, q);
+    if (groupedStops.length) {
       html+=`<div class="dd-sec">🚏 Stops</div>`;
-      data.stops.forEach(s => {
+      groupedStops.forEach(s => {
+        const sub = s.variants > 1
+          ? `${s.variants} stop points nearby · ${s.variantCodes.slice(0,2).map(code => `Stop ${code}`).join(', ')}${s.variantCodes.length > 2 ? ' +' : ''}`
+          : `Stop ${s.code||s.stopId}`;
         html+=`<div class="dd-item" onclick="pickStop(${JSON.stringify(s).replace(/"/g,'&quot;')})">
           <div class="dd-badge" style="background:var(--surface3);color:var(--ink2)">🚏</div>
-          <div><div class="dd-name">${s.name}</div><div class="dd-sub">Stop ${s.code||s.stopId}</div></div>
+          <div><div class="dd-name">${s.name}</div><div class="dd-sub">${sub}</div></div>
         </div>`;
       });
     }
@@ -1720,6 +1912,22 @@ function initMobileSheets() {
   });
 }
 
+function initSidebarScrollGuard() {
+  const scroll = document.getElementById('sb-scroll');
+  if (!scroll) return;
+  const markScrolling = () => {
+    sidebarScrollActive = true;
+    if (sidebarScrollTimer) clearTimeout(sidebarScrollTimer);
+    sidebarScrollTimer = setTimeout(() => {
+      sidebarScrollActive = false;
+      flushDeferredSidebarRender();
+    }, 220);
+  };
+  scroll.addEventListener('scroll', markScrolling, { passive: true });
+  scroll.addEventListener('touchstart', markScrolling, { passive: true });
+  scroll.addEventListener('wheel', markScrolling, { passive: true });
+}
+
 map.on('moveend zoomend resize', () => {
   mapInteractionActive = false;
   updateMarkers();
@@ -1749,6 +1957,7 @@ async function init() {
   setTimeout(()=>ls.remove(),500);
   startEtaTicker();
   initMobileSheets();
+  initSidebarScrollGuard();
   startVehicleStream();
   S.alertPollTimer = setInterval(fetchAlerts, ALERT_POLL_MS);
 }

@@ -22,6 +22,7 @@ app.use(express.static(__dirname));
 const V1 = 'https://gtfs.adelaidemetro.com.au/v1/realtime';
 const V2 = 'https://gtfs.adelaidemetro.com.au/v2/realtime';
 const STATIC_DATA_DIR = process.env.STATIC_DATA_DIR || path.join(__dirname, 'data', 'static', 'current');
+const STOP_SEARCH_INDEX_FILE = path.join(__dirname, 'static', 'stop-search-index.js');
 
 const OCCUPANCY_LABELS = {
   0: { label: 'Empty', emoji: '🟢', pct: 5 },
@@ -35,12 +36,16 @@ const OCCUPANCY_LABELS = {
 
 const store = {
   vehicles: [],
+  vehicleByTrip: {},
   trips: {},
   alerts: [],
+  routeAlertCounts: {},
   routes: {},
   trips_map: {},
   stops: {},
+  stopSearchIndex: [],
   stop_times_compact: {},
+  stopTripIndex: {},
   shapesById: null,
   gtfsVersion: null,
   staticLoaded: false,
@@ -55,6 +60,9 @@ const store = {
   caches: {
     tripStops: new Map(),
     departuresByStop: new Map(),
+  },
+  signatures: {
+    vehicles: null,
   },
 };
 
@@ -85,6 +93,10 @@ function matchedAlertsForVehicle(vehicle) {
   return store.alerts.filter((alert) => alert.routes.includes(vehicle.routeId) || alert.routes.includes(vehicle.routeShort));
 }
 
+function alertCountForVehicle(vehicle) {
+  return (store.routeAlertCounts[vehicle.routeId] || 0) + (store.routeAlertCounts[vehicle.routeShort] || 0);
+}
+
 function serializeVehicleSummary(vehicle) {
   return {
     vehicleId: vehicle.vehicleId,
@@ -105,7 +117,7 @@ function serializeVehicleSummary(vehicle) {
     stopSeq: vehicle.stopSeq,
     timestamp: vehicle.timestamp,
     occupancy: vehicle.occupancy,
-    alertCount: matchedAlertsForVehicle(vehicle).length,
+    alertCount: alertCountForVehicle(vehicle),
   };
 }
 
@@ -123,6 +135,18 @@ function alertsPayload() {
     count: store.alerts.length,
     alerts: store.alerts,
   };
+}
+
+function broadcastVehiclesIfChanged() {
+  const vehicles = store.vehicles.map(serializeVehicleSummary);
+  const nextSignature = JSON.stringify(vehicles);
+  if (nextSignature === store.signatures.vehicles) return;
+  store.signatures.vehicles = nextSignature;
+  broadcastSse('vehicles', {
+    timestamp: store.lastUpdated.vehicles,
+    count: vehicles.length,
+    vehicles,
+  });
 }
 
 function writeSseEvent(res, event, payload) {
@@ -220,26 +244,26 @@ function getDepartureRowsForStop(stopId) {
     return cached;
   }
 
-  const results = [];
-  const marker = `|${stopId}|`;
-
-  for (const [tripId, compact] of Object.entries(store.stop_times_compact)) {
-    if (!compact.includes(marker)) continue;
-    const rows = compact.split(';');
-    for (const row of rows) {
-      if (!row.includes(marker)) continue;
-      const [seq, stopIdValue, time] = row.split('|');
-      results.push({
-        tripId,
-        seq: Number(seq),
-        stopId: stopIdValue,
-        t: time || null,
-      });
-    }
-  }
+  const results = store.stopTripIndex[stopId] || [];
 
   rememberInMap(store.caches.departuresByStop, stopId, results, CACHE_LIMITS.departuresByStop);
   return results;
+}
+
+function buildStopTimeLookup(stops) {
+  const bySeq = new Map();
+  const byStopId = new Map();
+  stops.forEach((stop) => {
+    if (stop.seq) bySeq.set(stop.seq, stop);
+    if (stop.stopId && !byStopId.has(stop.stopId)) byStopId.set(stop.stopId, stop);
+  });
+  return { bySeq, byStopId };
+}
+
+function stopTimeMatch(lookup, seq, stopId) {
+  if (seq && lookup.bySeq.has(seq)) return lookup.bySeq.get(seq);
+  if (stopId && lookup.byStopId.has(stopId)) return lookup.byStopId.get(stopId);
+  return null;
 }
 
 function adelaideTimeParts(timeMs) {
@@ -283,6 +307,11 @@ async function readJson(fileName) {
   return JSON.parse(raw);
 }
 
+async function writeStopSearchIndexFile() {
+  const payload = `window.__STOP_SEARCH_INDEX__ = ${JSON.stringify(store.stopSearchIndex)};\n`;
+  await fs.writeFile(STOP_SEARCH_INDEX_FILE, payload, 'utf8');
+}
+
 async function ensureShapesLoaded() {
   if (store.shapesById) return;
   try {
@@ -319,11 +348,20 @@ async function loadStatic(force = false) {
     store.routes = routes || {};
     store.trips_map = trips || {};
     store.stops = stops || {};
+    store.stopSearchIndex = Object.entries(store.stops).map(([id, stop]) => ({
+      stopId: id,
+      name: stop.name,
+      lat: stop.lat,
+      lon: stop.lon,
+      code: stop.code,
+    }));
+    await writeStopSearchIndexFile();
     store.stop_times_compact = stopTimesCompact || {};
     store.shapesById = null;
     clearRuntimeCaches();
 
     store.stopRouteTypes = {};
+    store.stopTripIndex = {};
     Object.entries(store.trips_map).forEach(([tripId, trip]) => {
       const route = store.routes[trip.routeId] || {};
       const type = route.type || 'bus';
@@ -332,6 +370,13 @@ async function loadStatic(force = false) {
       parseTripStopsFromCompact(compact).forEach((s) => {
         if (!store.stopRouteTypes[s.stopId]) store.stopRouteTypes[s.stopId] = new Set();
         store.stopRouteTypes[s.stopId].add(type);
+        if (!store.stopTripIndex[s.stopId]) store.stopTripIndex[s.stopId] = [];
+        store.stopTripIndex[s.stopId].push({
+          tripId,
+          seq: s.seq,
+          stopId: s.stopId,
+          t: s.t || null,
+        });
       });
     });
 
@@ -372,7 +417,7 @@ async function pollVehicles() {
 
     if (!feedV1) throw new Error('v1 feed failed');
 
-    store.vehicles = feedV1.entity
+    const nextVehicles = feedV1.entity
       .filter((e) => e.vehicle?.position)
       .map((e) => {
         const v = e.vehicle;
@@ -409,10 +454,13 @@ async function pollVehicles() {
         };
       });
 
+    store.vehicles = nextVehicles;
+    store.vehicleByTrip = Object.fromEntries(nextVehicles.filter((v) => v.tripId).map((v) => [v.tripId, v]));
     store.lastUpdated.vehicles = new Date().toISOString();
     delete store.errors.vehicles;
     console.log(`[Vehicles] ${store.vehicles.length} (${Object.keys(occupancyMap).length} with occupancy)`);
-    broadcastSse('vehicles', vehiclesPayload());
+
+    broadcastVehiclesIfChanged();
   } catch (e) {
     console.error('[Vehicles]', e.message);
     store.errors.vehicles = e.message;
@@ -434,6 +482,7 @@ async function pollTrips() {
         if (!tripId) return;
 
         const ss = getStopTimesForTrip(tripId);
+        const lookup = buildStopTimeLookup(ss);
 
         store.trips[tripId] = {
           tripId,
@@ -442,7 +491,7 @@ async function pollTrips() {
             const sid = stu.stopId || '';
             const si = store.stops[sid] || {};
             const seq = stu.stopSequence || 0;
-            const se = ss.find((s) => s.seq === seq || s.stopId === sid);
+            const se = stopTimeMatch(lookup, seq, sid);
             const arrTs = stu.arrival?.time ? Number(stu.arrival.time) : null;
             const depTs = stu.departure?.time ? Number(stu.departure.time) : null;
             const delay = Number(stu.arrival?.delay || stu.departure?.delay || 0);
@@ -502,9 +551,18 @@ async function pollAlerts() {
         };
       });
 
+    store.routeAlertCounts = {};
+    store.alerts.forEach((alert) => {
+      alert.routes.forEach((routeKey) => {
+        if (!routeKey) return;
+        store.routeAlertCounts[routeKey] = (store.routeAlertCounts[routeKey] || 0) + 1;
+      });
+    });
+
     store.lastUpdated.alerts = new Date().toISOString();
     delete store.errors.alerts;
     console.log(`[Alerts] ${store.alerts.length}`);
+    broadcastVehiclesIfChanged();
     broadcastSse('alerts', alertsPayload());
   } catch (e) {
     console.error('[Alerts]', e.message);
@@ -599,7 +657,7 @@ function scheduleDailyStaticReload() {
   const now = new Date();
   const adelaideNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Adelaide' }));
   const nextRun = new Date(adelaideNow);
-  nextRun.setHours(1, 5, 0, 0);
+  nextRun.setHours(1, 15, 0, 0);
 
   if (adelaideNow >= nextRun) nextRun.setDate(nextRun.getDate() + 1);
 
@@ -688,22 +746,20 @@ app.get('/api/stops/search', (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   if (!q || q.length < 2) return res.json({ stops: [] });
 
-  const results = Object.entries(store.stops)
-    .filter(([id, s]) =>
+  const results = store.stopSearchIndex
+    .filter((s) =>
       s.name?.toLowerCase().includes(q) ||
       s.code?.toLowerCase().includes(q) ||
-      id.toLowerCase().includes(q)
+      s.stopId.toLowerCase().includes(q)
     )
     .slice(0, 20)
-    .map(([id, s]) => ({
-      stopId: id,
-      name: s.name,
-      lat: s.lat,
-      lon: s.lon,
-      code: s.code,
-    }));
+    .map((s) => ({ ...s }));
 
   return res.json({ stops: results });
+});
+
+app.get('/api/stops/index', (req, res) => {
+  res.json({ stops: store.stopSearchIndex });
 });
 app.get('/api/stops/nearby', (req, res) => {
   const lat = parseFloat(req.query.lat);
@@ -749,25 +805,33 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
   const { stopId } = req.params;
   const departures = [];
   const stopRows = getDepartureRowsForStop(stopId);
+  const tripUpdateLookupCache = new Map();
 
   stopRows.forEach((stopEntry) => {
     const tripId = stopEntry.tripId;
     const tm = store.trips_map[tripId] || {};
     const rm = store.routes[tm.routeId] || {};
     const tu = store.trips[tripId];
+    let stopUpdateLookup = tripUpdateLookupCache.get(tripId);
+    if (stopUpdateLookup === undefined) {
+      stopUpdateLookup = tu
+        ? buildStopTimeLookup(tu.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s })))
+        : null;
+      tripUpdateLookupCache.set(tripId, stopUpdateLookup);
+    }
 
     let realtimeTime = null;
     let delay = 0;
 
-    if (tu) {
-      const rts = tu.stopUpdates.find((s) => s.stopId === stopId || s.sequence === stopEntry.seq);
+    if (stopUpdateLookup) {
+      const rts = stopTimeMatch(stopUpdateLookup, stopEntry.seq, stopId);
       if (rts) {
         realtimeTime = rts.arrivalTime || rts.departureTime;
         delay = rts.delay || 0;
       }
     }
 
-    const vehicle = store.vehicles.find((v) => v.tripId === tripId);
+    const vehicle = store.vehicleByTrip[tripId];
 
     departures.push({
       tripId,
@@ -833,8 +897,9 @@ app.get('/api/plan', (req, res) => {
     const toStop = stops[toIdx];
     const route = store.routes[trip.routeId] || {};
     const tripUpdate = store.trips[tripId];
-    const fromRt = tripUpdate?.stopUpdates?.find((s) => s.sequence === fromStop.seq || s.stopId === fromStopId);
-    const toRt = tripUpdate?.stopUpdates?.find((s) => s.sequence === toStop.seq || s.stopId === toStopId);
+    const tripLookup = tripUpdate ? buildStopTimeLookup(tripUpdate.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s }))) : null;
+    const fromRt = tripLookup ? stopTimeMatch(tripLookup, fromStop.seq, fromStopId) : null;
+    const toRt = tripLookup ? stopTimeMatch(tripLookup, toStop.seq, toStopId) : null;
 
     const departureRealtime = fromRt?.arrivalTime || fromRt?.departureTime || null;
     const arrivalRealtime = toRt?.arrivalTime || toRt?.departureTime || null;
@@ -843,7 +908,7 @@ app.get('/api/plan', (req, res) => {
 
     if (departureTs && departureTs < now - 60000) return;
 
-    const vehicle = store.vehicles.find((v) => v.tripId === tripId);
+    const vehicle = store.vehicleByTrip[tripId];
     options.push({
       tripId,
       routeId: trip.routeId || '',
