@@ -260,6 +260,9 @@ const DIRS = ['N','NE','E','SE','S','SW','W','NW'];
 const bearDir = b => DIRS[Math.round(((b||0)+360)/45)%8];
 const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'}); } catch{ return '—'; }};
 const adelaideNowDate = () => new Date();
+const hasUsableCoords = v => Number.isFinite(v?.lat) && Number.isFinite(v?.lon) && Math.abs(v.lat) > 1 && Math.abs(v.lon) > 1;
+const coordText = value => Number.isFinite(value) && Math.abs(value) > 1 ? value.toFixed(6) : 'Unavailable';
+const tripStartStop = td => (td?.stops || []).find(s => Number.isFinite(s?.stopLat) && Number.isFinite(s?.stopLon)) || null;
 
 function adelaideTimeParts(timeMs) {
   const d = new Date(timeMs);
@@ -1346,7 +1349,7 @@ function selectVehicle(id) {
   let v = S.vehicles.find(x => x.vehicleId === id);
   if (!v) return;
   renderSidebar(); updateMarkers();
-  map.panTo([v.lat,v.lon], {animate:true, duration:.5});
+  if (hasUsableCoords(v)) map.panTo([v.lat,v.lon], {animate:true, duration:.5});
 
   // Fetch detailed vehicle payload (with upcomingStops)
   document.getElementById('dp-title').textContent=`Loading...`;
@@ -1472,8 +1475,8 @@ function renderDetailContent(v) {
     ${alertsHtml}
     <div class="d-sec">Live Position</div>
     <div class="gps-row">
-      <div class="gps-cell"><div class="gps-lbl">Latitude</div><div class="gps-val" id="gv-lat">${v.lat?.toFixed(6)}</div></div>
-      <div class="gps-cell"><div class="gps-lbl">Longitude</div><div class="gps-val" id="gv-lon">${v.lon?.toFixed(6)}</div></div>
+      <div class="gps-cell"><div class="gps-lbl">Latitude</div><div class="gps-val" id="gv-lat">${hasUsableCoords(v) ? coordText(v.lat) : `Trip hasn't started yet`}</div></div>
+      <div class="gps-cell"><div class="gps-lbl">Longitude</div><div class="gps-val" id="gv-lon">${hasUsableCoords(v) ? coordText(v.lon) : `Starting stop pending`}</div></div>
     </div>
     <div class="d-sec">Route Stops</div>
     <div id="stops-zone"><div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">Loading...</div></div>
@@ -1498,6 +1501,12 @@ async function loadDetailData(v) {
       const r=await fetch(`/api/trips/${v.tripId}`); S.tripCache[v.tripId]=await r.json();
     }
     const td=S.tripCache[v.tripId];
+    const startStop = tripStartStop(td);
+    if (!hasUsableCoords(v) && startStop) {
+      map.panTo([startStop.stopLat, startStop.stopLon], { animate:true, duration:.5 });
+      const la=document.getElementById('gv-lat'); if(la) la.textContent=`Trip hasn't started yet`;
+      const lo=document.getElementById('gv-lon'); if(lo) lo.textContent=startStop.stopName || 'Starting stop';
+    }
     if (!v.upcomingStops?.length) renderStopTimeline(td.stops||[], v.stopSeq||0, v.routeType, td.hasRealtime);
     const ns=(td.stops||[]).find(s=>s.sequence>=(v.stopSeq||0));
     if (ns) {
@@ -1651,6 +1660,26 @@ async function doSearch(q) {
     });
   }
 
+  const vehicleMatches = S.vehicles
+    .filter(v =>
+      v.vehicleId?.toLowerCase().includes(ql) ||
+      v.routeShort?.toLowerCase().includes(ql) ||
+      v.routeLong?.toLowerCase().includes(ql) ||
+      v.headsign?.toLowerCase().includes(ql)
+    )
+    .slice(0,5);
+  if (vehicleMatches.length) {
+    html+=`<div class="dd-sec">Vehicles</div>`;
+    vehicleMatches.forEach(v => {
+      const col=vColor(v.routeType,1), bg=vBg(v.routeType,1);
+      const ico=v.routeType==='tram'?'Tram':v.routeType==='train'?'Train':'Bus';
+      html+=`<div class="dd-item" onclick="openSearchVehicle('${v.vehicleId}')">
+        <div class="dd-badge" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
+        <div><div class="dd-name">${v.routeLong||v.routeShort||v.vehicleId}</div><div class="dd-sub">${ico} · Veh ${v.vehicleId} · ${v.headsign||'Live vehicle'}</div></div>
+      </div>`;
+    });
+  }
+
   // Stops
   try {
     const allStops = await ensureStopSearchIndex();
@@ -1691,6 +1720,15 @@ function pickStop(stopObj) {
   renderSidebar();
   if (isMobile()) mobDrawerOpen();
   if (stopObj.lat&&stopObj.lon) map.panTo([stopObj.lat,stopObj.lon],{animate:true});
+}
+function openSearchVehicle(vehicleId) {
+  if (!vehicleId) return;
+  searchInputEl?.blur();
+  document.getElementById('search-in').value='';
+  document.getElementById('search-clear').classList.remove('show');
+  document.getElementById('search-drop').classList.remove('show');
+  flushFrozenLiveUiUpdates();
+  selectVehicle(vehicleId);
 }
 function filterByRoute(rs) {
   document.getElementById('search-in').value='';
@@ -1748,8 +1786,10 @@ async function refreshSelectedVehicleDetail() {
   } catch {}
   if (!sv) return;
 
-  const la=document.getElementById('gv-lat'); if(la) la.textContent=sv.lat.toFixed(6);
-  const lo=document.getElementById('gv-lon'); if(lo) lo.textContent=sv.lon.toFixed(6);
+  const tripData = sv.tripId ? S.tripCache[sv.tripId] : null;
+  const startStop = tripStartStop(tripData);
+  const la=document.getElementById('gv-lat'); if(la) la.textContent=hasUsableCoords(sv) ? coordText(sv.lat) : `Trip hasn't started yet`;
+  const lo=document.getElementById('gv-lon'); if(lo) lo.textContent=hasUsableCoords(sv) ? coordText(sv.lon) : (startStop?.stopName || 'Starting stop');
   const ks=document.getElementById('kv-spd'); if(ks){ks.textContent=sv.speed>0.5?Math.round(sv.speed):'0';ks.style.color=sv.speed>0.5?'var(--ok)':'var(--stopped)';}
   const kc=document.getElementById('kv-cur'); if(kc) kc.textContent=vehicleCurrentStop(sv)?.stopName||vehicleCurrentStop(sv)?.stopId||'Unavailable';
   const kn=document.getElementById('kv-nxt'); if(kn) kn.textContent=vehicleNextStop(sv)?.stopName||vehicleNextStop(sv)?.stopId||'Unavailable';

@@ -110,7 +110,7 @@ body.theme-night .tb-toggle.on{background:#152844;color:#ffd76a;border-color:rgb
 .search-row input::placeholder{color:var(--ink4)}
 .search-clear{width:18px;height:18px;border-radius:50%;background:var(--line2);color:var(--ink3);display:none;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
 .search-clear.show{display:flex}
-.search-drop{position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--line2);border-radius:var(--r16);box-shadow:var(--sh3);max-height:360px;overflow-y:auto;display:none;animation:fadeUp .15s ease}
+.search-drop{position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:200;background:rgba(255,255,255,.97);border:1px solid rgba(193,205,227,.9);border-radius:var(--r16);box-shadow:0 22px 52px rgba(15,23,42,.18);max-height:360px;overflow-y:auto;display:none;animation:fadeUp .15s ease}
 .search-drop.show{display:block}
 .dd-sec{padding:7px 14px 4px;font-size:9px;font-weight:700;color:var(--ink3);letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--line)}
 .dd-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .1s}
@@ -383,7 +383,6 @@ body.theme-night .map-legend{
   border-color:rgba(255,255,255,.1);
 }
 body.theme-night .search-row,
-body.theme-night .search-drop,
 body.theme-night .filter-bar,
 body.theme-night .drawer-tab-grid,
 body.theme-night .stats-strip,
@@ -391,6 +390,11 @@ body.theme-night .dp-head,
 body.theme-night .vg-hdr{
   background:rgba(30,41,59,.75);
   border-color:var(--line);
+}
+body.theme-night .search-drop{
+  background:rgba(15,23,42,.96);
+  border-color:rgba(100,116,139,.45);
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
 }
 body.theme-night .stat-box,
 body.theme-night .vcard,
@@ -481,6 +485,7 @@ body.theme-night .leaflet-container{background:#07111f}
     max-height:min(56vh, 460px);
     border-radius:22px;
     z-index:320;
+    background:rgba(255,255,255,.985);
   }
   .dd-sec{ padding:9px 16px 6px; font-size:10px; letter-spacing:1.1px; }
   .dd-item{ gap:12px; padding:14px 16px; }
