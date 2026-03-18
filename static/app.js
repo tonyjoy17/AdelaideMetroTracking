@@ -1518,7 +1518,7 @@ async function loadDetailData(v) {
       const la=document.getElementById('gv-lat'); if(la) la.textContent=`Trip hasn't started yet`;
       const lo=document.getElementById('gv-lon'); if(lo) lo.textContent=startStop.stopName || 'Starting stop';
     }
-    if (!v.upcomingStops?.length) renderStopTimeline(td.stops||[], v.stopSeq||0, v.routeType, td.hasRealtime);
+    if (!v.upcomingStops?.length) renderStopTimeline(td.stops||[], v.stopSeq||0, v.routeType, td.hasRealtime, v.status);
     const ns=(td.stops||[]).find(s=>s.sequence>=(v.stopSeq||0));
     if (ns) {
       const d=fmtDelay(ns.delay);
@@ -1592,20 +1592,47 @@ function renderStopTimelineDirect(upcoming, type, hasRT) {
   if (el) renderStopTimelineRows(el, upcoming, type, hasRT);
 }
 
+function computeTimelineWindow(stops, curSeq, vehicleStatus) {
+  const status = String(vehicleStatus || '').toUpperCase();
+  const seqIdx = curSeq > 0 ? stops.findIndex(s => (s.sequence || 0) >= curSeq) : -1;
+  let currentIdx = -1;
+  let nextIdx = -1;
 
-function renderStopTimeline(stops, curSeq, type, hasRT) {
-  const el = document.getElementById('stops-zone');
-  if (!el) return;
-  const currentIdx = Math.max(stops.findIndex(s => (s.sequence || 0) >= (curSeq || 0)), 0);
-  const startIdx = Math.max(0, currentIdx - 3);
-  const visible = stops.slice(startIdx).map((s, idx) => {
+  if (seqIdx >= 0) {
+    if (status === 'STOPPED_AT') {
+      currentIdx = seqIdx;
+      nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
+    } else if (status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT') {
+      currentIdx = seqIdx > 0 ? seqIdx - 1 : -1;
+      nextIdx = seqIdx;
+    } else {
+      currentIdx = seqIdx;
+      nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
+    }
+  }
+
+  if (currentIdx < 0 && nextIdx < 0) {
+    currentIdx = Math.max(stops.findIndex(s => (s.sequence || 0) >= (curSeq || 0)), 0);
+    nextIdx = currentIdx + 1 < stops.length ? currentIdx + 1 : -1;
+  }
+
+  const anchorIdx = nextIdx >= 0 ? nextIdx : Math.max(currentIdx, 0);
+  const startIdx = Math.max(0, anchorIdx - 3);
+  return stops.slice(startIdx).map((s, idx) => {
     const absoluteIdx = startIdx + idx;
     let timelineStatus = 'upcoming';
-    if (absoluteIdx < currentIdx) timelineStatus = 'passed';
-    else if (absoluteIdx === currentIdx) timelineStatus = 'current';
-    else if (absoluteIdx === currentIdx + 1) timelineStatus = 'next';
+    if (currentIdx >= 0 && absoluteIdx < currentIdx) timelineStatus = 'passed';
+    else if (currentIdx >= 0 && absoluteIdx === currentIdx) timelineStatus = 'current';
+    else if (nextIdx >= 0 && absoluteIdx === nextIdx) timelineStatus = 'next';
+    else if (nextIdx >= 0 && absoluteIdx < nextIdx) timelineStatus = 'passed';
     return { ...s, timelineStatus };
   });
+}
+
+function renderStopTimeline(stops, curSeq, type, hasRT, vehicleStatus) {
+  const el = document.getElementById('stops-zone');
+  if (!el) return;
+  const visible = computeTimelineWindow(stops, curSeq, vehicleStatus);
   renderStopTimelineRows(el, visible, type, hasRT);
 }
 

@@ -597,22 +597,44 @@ function upcomingStopsFor(v) {
   const annotateWindow = (stops) => {
     if (!stops.length) return stops;
 
-    let currentIdx = stops.findIndex((s) => (s.sequence || 0) >= seq);
-    if (currentIdx < 0) currentIdx = stops.findIndex((s) => {
-      const t = s.arrivalTime || s.departureTime;
-      if (!t) return true;
-      const ts = new Date(t).getTime();
-      return Number.isNaN(ts) || ts >= now - 30000;
-    });
-    if (currentIdx < 0) currentIdx = Math.max(stops.length - 1, 0);
+    const status = String(v.status || '').toUpperCase();
+    const seqIdx = seq > 0 ? stops.findIndex((s) => (s.sequence || 0) >= seq) : -1;
+    let currentIdx = -1;
+    let nextIdx = -1;
 
-    const start = Math.max(0, currentIdx - 3);
+    if (seqIdx >= 0) {
+      if (status === 'STOPPED_AT') {
+        currentIdx = seqIdx;
+        nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
+      } else if (status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT') {
+        currentIdx = seqIdx > 0 ? seqIdx - 1 : -1;
+        nextIdx = seqIdx;
+      } else {
+        currentIdx = seqIdx;
+        nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
+      }
+    }
+
+    if (currentIdx < 0 && nextIdx < 0) {
+      currentIdx = stops.findIndex((s) => {
+        const t = s.arrivalTime || s.departureTime;
+        if (!t) return true;
+        const ts = new Date(t).getTime();
+        return Number.isNaN(ts) || ts >= now - 30000;
+      });
+      if (currentIdx < 0) currentIdx = Math.max(stops.length - 1, 0);
+      nextIdx = currentIdx + 1 < stops.length ? currentIdx + 1 : -1;
+    }
+
+    const anchorIdx = nextIdx >= 0 ? nextIdx : Math.max(currentIdx, 0);
+    const start = Math.max(0, anchorIdx - 3);
     return stops.slice(start).map((s, idx) => {
       const absoluteIdx = start + idx;
       let timelineStatus = 'upcoming';
-      if (absoluteIdx < currentIdx) timelineStatus = 'passed';
-      else if (absoluteIdx === currentIdx) timelineStatus = 'current';
-      else if (absoluteIdx === currentIdx + 1) timelineStatus = 'next';
+      if (currentIdx >= 0 && absoluteIdx < currentIdx) timelineStatus = 'passed';
+      else if (currentIdx >= 0 && absoluteIdx === currentIdx) timelineStatus = 'current';
+      else if (nextIdx >= 0 && absoluteIdx === nextIdx) timelineStatus = 'next';
+      else if (nextIdx >= 0 && absoluteIdx < nextIdx) timelineStatus = 'passed';
 
       return {
         ...s,
