@@ -632,17 +632,26 @@ function restoreFullMapFromNearby() {
 function focusVehicleForFollow(v, animate = true) {
   if (!v) return;
   const zoom = Math.max(map.getZoom(), 15);
-  map.setView([v.lat, v.lon], zoom, { animate, duration: animate ? 0.45 : 0 });
-  if (!isMobile()) return;
+  if (!isMobile()) {
+    map.setView([v.lat, v.lon], zoom, { animate, duration: animate ? 0.45 : 0 });
+    return;
+  }
 
   const detail = document.getElementById('detail');
-  if (!detail?.classList.contains('open')) return;
+  if (!detail?.classList.contains('open')) {
+    map.setView([v.lat, v.lon], zoom, { animate, duration: animate ? 0.45 : 0 });
+    return;
+  }
 
   const detailRect = detail.getBoundingClientRect();
-  const offsetY = Math.max(90, Math.min(220, detailRect.height * 0.22));
-  setTimeout(() => {
-    map.panBy([0, offsetY], { animate: true, duration: 0.35 });
-  }, animate ? 50 : 0);
+  const mapSize = map.getSize();
+  const topSafe = Math.max(112, window.innerHeight * 0.14);
+  const desiredY = Math.max(topSafe, Math.min(detailRect.top - 104, mapSize.y * 0.46));
+  const vehiclePoint = map.project([v.lat, v.lon], zoom);
+  const targetCenterPoint = L.point(vehiclePoint.x, vehiclePoint.y + (mapSize.y / 2 - desiredY));
+  const targetCenter = map.unproject(targetCenterPoint, zoom);
+
+  map.setView(targetCenter, zoom, { animate, duration: animate ? 0.45 : 0 });
 }
 
 function toggleFollow() {
@@ -1074,6 +1083,7 @@ async function renderStopBoard(scroll) {
     const upcoming = upcomingDeparturesOnly(allServices);
     if (!allServices.length) {
       setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${data.stopName||stop.name}</div></div></div></div><div class="empty"><div class="empty-i">🚏</div><div class="empty-t">No departures found</div></div>`);
+      hideActionFeedback(180);
       return;
     }
     resetEtaTargets();
@@ -1100,8 +1110,10 @@ async function renderStopBoard(scroll) {
         : `Stop ${stop.stopId} · showing available services`;
     const moreBtn = !S.stopShowAll && allServices.length > visible.length ? `<div class="dep-actions"><button class="dep-more-btn" onclick="showAllStopServices()">Show full service (${allServices.length})</button></div>` : '';
     setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${data.stopName||stop.name}</div><div class="stop-id-sm">${meta}</div></div></div></div>${rows}${moreBtn}`);
+    hideActionFeedback(180);
   } catch(e) {
     setHtmlIfChanged(scroll, `<div class="stop-hdr"><div class="stop-hdr-row"><button class="stop-back" onclick="closeStop()">←</button><div><div class="stop-name-big">${stop.name}</div></div></div></div><div class="empty"><div class="empty-i">⚠️</div><div class="empty-t">Failed to load departures</div></div>`);
+    hideActionFeedback(180);
   }
 }
 function closeStop() {
@@ -1254,7 +1266,8 @@ function renderDetailContent(v) {
     </div>
     <div class="kpi-row stops">
       <div class="kpi"><div class="kpi-v" id="kv-spd" style="color:${isMoving?'var(--ok)':'var(--stopped)'}">${isMoving?Math.round(v.speed):'0'}</div><div class="kpi-l">km / h</div></div>
-      <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
+      <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
+
     </div>
     ${crowdHtml}
     ${alertsHtml}
@@ -1450,6 +1463,7 @@ function pickStop(stopObj) {
   S.stopBoardRequestId++;
   S.selectedStop=stopObj; S.mode='stop'; S.selectedId=null; S.stopShowAll=false;
   document.getElementById('detail').classList.remove('open');
+  showActionFeedback('Loading stop details...');
   syncControlState();
   renderSidebar();
   if (stopObj.lat&&stopObj.lon) map.panTo([stopObj.lat,stopObj.lon],{animate:true});
@@ -1752,5 +1766,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 init();
-
 
