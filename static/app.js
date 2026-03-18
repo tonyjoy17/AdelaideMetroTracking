@@ -937,7 +937,8 @@ function renderNearby(scroll) {
   if (!stops.length) { setHtmlIfChanged(scroll, hdr+`<div class="empty"><div class="empty-i">🔍</div><div class="empty-t">No stops found nearby</div></div>`); return; }
   const rows=stops.map((s,i)=>{
     const icon=s.routeTypes?.includes('tram')?'🚊':s.routeTypes?.includes('train')?'🚆':'🚌';
-    return `<div class="nearby-row" onclick="pickStop(${JSON.stringify({stopId:s.stopId,name:s.name,code:s.code,lat:s.lat,lon:s.lon}).replace(/"/g,'&quot;')})" style="animation:fadeUp .12s both;animation-delay:${i*.03}s">
+    const stopPayload = JSON.stringify({stopId:s.stopId,name:s.name,code:s.code,lat:s.lat,lon:s.lon,memberStopIds:[s.stopId],variants:1,variantCodes:s.code?[s.code]:[]}).replace(/"/g,'&quot;');
+    return `<div class="nearby-row" onclick="pickStop(${stopPayload})" ontouchend="event.preventDefault(); pickStop(${stopPayload})" style="animation:fadeUp .12s both;animation-delay:${i*.03}s">
       <div class="nearby-dot">${icon}</div>
       <div class="nearby-body"><div class="nearby-name">${s.name}</div><div class="nearby-meta">Stop ${s.code||s.stopId} · ${walkMins(s.dist)}</div></div>
       <div class="nearby-dist">${fmtDist(s.dist)}</div>
