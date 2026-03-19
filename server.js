@@ -695,7 +695,7 @@ function upcomingStopsFor(v) {
         currentIdx = seqIdx;
         nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
       } else if (status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT') {
-        currentIdx = seqIdx > 0 ? seqIdx - 1 : -1;
+        currentIdx = -1;
         nextIdx = seqIdx;
       } else {
         currentIdx = seqIdx;
@@ -704,14 +704,13 @@ function upcomingStopsFor(v) {
     }
 
     if (currentIdx < 0 && nextIdx < 0) {
-      currentIdx = stops.findIndex((s) => {
+      nextIdx = stops.findIndex((s) => {
         const t = s.arrivalTime || s.departureTime;
         if (!t) return true;
         const ts = new Date(t).getTime();
         return Number.isNaN(ts) || ts >= now - 30000;
       });
-      if (currentIdx < 0) currentIdx = Math.max(stops.length - 1, 0);
-      nextIdx = currentIdx + 1 < stops.length ? currentIdx + 1 : -1;
+      if (nextIdx < 0) currentIdx = Math.max(stops.length - 1, 0);
     }
 
     const anchorIdx = nextIdx >= 0 ? nextIdx : Math.max(currentIdx, 0);

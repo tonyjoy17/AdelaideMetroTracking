@@ -1887,7 +1887,7 @@ function computeTimelineWindow(stops, curSeq, vehicleStatus) {
       currentIdx = seqIdx;
       nextIdx = seqIdx + 1 < stops.length ? seqIdx + 1 : -1;
     } else if (status === 'IN_TRANSIT_TO' || status === 'INCOMING_AT') {
-      currentIdx = seqIdx > 0 ? seqIdx - 1 : -1;
+      currentIdx = -1;
       nextIdx = seqIdx;
     } else {
       currentIdx = seqIdx;
@@ -1896,8 +1896,7 @@ function computeTimelineWindow(stops, curSeq, vehicleStatus) {
   }
 
   if (currentIdx < 0 && nextIdx < 0) {
-    currentIdx = Math.max(stops.findIndex(s => (s.sequence || 0) >= (curSeq || 0)), 0);
-    nextIdx = currentIdx + 1 < stops.length ? currentIdx + 1 : -1;
+    nextIdx = Math.max(stops.findIndex(s => (s.sequence || 0) >= (curSeq || 0)), 0);
   }
 
   const anchorIdx = nextIdx >= 0 ? nextIdx : Math.max(currentIdx, 0);
