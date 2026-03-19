@@ -686,7 +686,10 @@ function nextStopForVehicle(v) {
 }
 
 function vehicleCurrentStop(v) {
-  return v?.upcomingStops?.find(s => s?.timelineStatus === 'current') || null;
+  const upcomingStops = v?.upcomingStops || [];
+  return upcomingStops.find(s => s?.timelineStatus === 'current')
+    || [...upcomingStops].reverse().find(s => s?.timelineStatus === 'passed')
+    || null;
 }
 
 function vehicleNextStop(v) {
