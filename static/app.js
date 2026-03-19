@@ -32,6 +32,8 @@ const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
 const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
 const VEHICLE_EXTRAPOLATE_MS = 10000;
 const VEHICLE_EXTRAPOLATE_MAX_METRES = 220;
+const OVERVIEW_ZOOM = 13.2;
+const OVERVIEW_GRID_DEGREES = 0.0065;
 const UI_DEBOUNCE_MS = 120;
 const SIDEBAR_SCROLL_RESUME_MS = 15_000;
 let actionFeedbackTimer = null;
@@ -47,6 +49,7 @@ let favoriteVehiclesCache = { vehiclesRef:null, favKey:null, result:[] };
 let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
+let mapRenderFrame = null;
 
 function moveLatLonByMeters(lat, lon, bearingDeg, metres) {
   const distance = Math.max(0, metres);
@@ -143,6 +146,7 @@ function updateDisplayedVehiclePositions(nextVehicles) {
     const currentLat = existing.lat ?? existing.targetLat;
     const currentLon = existing.lon ?? existing.targetLon;
     const distance = haversine(currentLat, currentLon, vehicle.lat, vehicle.lon);
+    const shouldAnimateVehicle = vehicle.vehicleId === S.selectedId;
     const previousTs = Number(existing.timestamp || 0);
     const nextTs = Number(vehicle.timestamp || 0);
     const elapsedSeconds = previousTs > 0 && nextTs > 0
@@ -154,6 +158,20 @@ function updateDisplayedVehiclePositions(nextVehicles) {
       (speedMps * elapsedSeconds) + VEHICLE_MOVE_BASE_BUFFER_METRES
     );
     if (!Number.isFinite(distance) || distance > plausibleDistance) {
+      existing.lat = vehicle.lat;
+      existing.lon = vehicle.lon;
+      existing.fromLat = vehicle.lat;
+      existing.fromLon = vehicle.lon;
+      existing.targetLat = vehicle.lat;
+      existing.targetLon = vehicle.lon;
+      existing.timestamp = vehicle.timestamp || 0;
+      existing.speed = vehicle.speed || 0;
+      existing.bearing = vehicle.bearing || 0;
+      existing.startAt = now;
+      existing.endAt = now;
+      return;
+    }
+    if (!shouldAnimateVehicle) {
       existing.lat = vehicle.lat;
       existing.lon = vehicle.lon;
       existing.fromLat = vehicle.lat;
@@ -932,20 +950,62 @@ function deckOccupancyVisible(v) {
   return zoom >= 15;
 }
 
+function aggregateOverviewVehicles(vehicles) {
+  const buckets = new Map();
+  vehicles.forEach((v) => {
+    const latKey = Math.round(v.lat / OVERVIEW_GRID_DEGREES);
+    const lonKey = Math.round(v.lon / OVERVIEW_GRID_DEGREES);
+    const key = `${v.routeType}|${latKey}|${lonKey}`;
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.latSum += v.lat;
+      bucket.lonSum += v.lon;
+      bucket.count += 1;
+      bucket.alertCount += vehicleAlertCount(v) ? 1 : 0;
+    } else {
+      buckets.set(key, {
+        routeType: v.routeType,
+        latSum: v.lat,
+        lonSum: v.lon,
+        count: 1,
+        alertCount: vehicleAlertCount(v) ? 1 : 0,
+      });
+    }
+  });
+  return [...buckets.values()].map((bucket, index) => ({
+    id: `agg-${bucket.routeType}-${index}`,
+    routeType: bucket.routeType,
+    lat: bucket.latSum / bucket.count,
+    lon: bucket.lonSum / bucket.count,
+    count: bucket.count,
+    alertCount: bucket.alertCount,
+  }));
+}
+
 function vehicleDeckData() {
-  const bounds = map.getBounds ? map.getBounds().pad(MARKER_VIEWPORT_PAD) : null;
+  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const viewportPad = zoom < OVERVIEW_ZOOM ? 0.12 : MARKER_VIEWPORT_PAD;
+  const bounds = map.getBounds ? map.getBounds().pad(viewportPad) : null;
   const visibleVehicles = vehiclesForMapView()
     .filter(hasUsableCoords)
     .filter(v => shouldRenderMarker(v, bounds))
     .sort((a, b) => String(a.vehicleId || '').localeCompare(String(b.vehicleId || '')));
+  const overviewMode = zoom < OVERVIEW_ZOOM;
+  const selectedVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
+  const nonSelectedVehicles = visibleVehicles.filter(v => v.vehicleId !== S.selectedId);
+  const overviewAggregates = overviewMode ? aggregateOverviewVehicles(nonSelectedVehicles) : [];
   return {
-    markerVehicles: visibleVehicles.filter(v => !useBusDot(v)),
-    busVehicles: visibleVehicles.filter(v => useBusDot(v)),
+    overviewMode,
+    markerVehicles: overviewMode
+      ? selectedVehicles
+      : visibleVehicles.filter(v => !useBusDot(v)),
+    busVehicles: overviewMode ? [] : visibleVehicles.filter(v => useBusDot(v)),
+    overviewAggregates,
   };
 }
 
 function buildDeckLayers() {
-  const { markerVehicles, busVehicles } = vehicleDeckData();
+  const { overviewMode, markerVehicles, busVehicles, overviewAggregates } = vehicleDeckData();
   const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
   const ringVehicles = markerVehicles.filter((v) => {
     if (v.vehicleId === S.selectedId) return true;
@@ -954,8 +1014,39 @@ function buildDeckLayers() {
 
   const layers = [
     new deck.ScatterplotLayer({
+      id: 'vehicle-overview-aggregates',
+      data: overviewAggregates,
+      pickable: false,
+      radiusUnits: 'pixels',
+      stroked: true,
+      lineWidthUnits: 'pixels',
+      lineWidthMinPixels: 1.5,
+      getPosition: d => [d.lon, d.lat],
+      getRadius: d => Math.min(16, 5 + Math.sqrt(d.count) * 2.6),
+      getFillColor: d => deckColorWithAlpha(
+        d.routeType === 'tram' ? DECK_COLORS.tram : d.routeType === 'train' ? DECK_COLORS.train : DECK_COLORS.bus,
+        0.9
+      ),
+      getLineColor: () => deckColorWithAlpha(DECK_COLORS.white, 0.95),
+    }),
+    new deck.TextLayer({
+      id: 'vehicle-overview-counts',
+      data: overviewAggregates.filter(d => d.count > 1),
+      pickable: false,
+      billboard: true,
+      fontFamily: 'JetBrains Mono, monospace',
+      getPosition: d => [d.lon, d.lat],
+      getText: d => String(d.count),
+      getColor: () => DECK_COLORS.white,
+      outlineWidth: 2,
+      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.85),
+      getSize: d => d.count > 9 ? 11 : 12,
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'center',
+    }),
+    new deck.ScatterplotLayer({
       id: 'vehicle-marker-halos',
-      data: markerVehicles.filter(v => v.vehicleId === S.selectedId || vehicleAlertCount(v) || v.routeType === 'tram' || v.routeType === 'train'),
+      data: markerVehicles.filter(v => v.vehicleId === S.selectedId || (!overviewMode && (vehicleAlertCount(v) || v.routeType === 'tram' || v.routeType === 'train'))),
       pickable: false,
       radiusUnits: 'pixels',
       stroked: false,
@@ -1009,7 +1100,7 @@ function buildDeckLayers() {
     }),
     new deck.TextLayer({
       id: 'vehicle-labels',
-      data: markerVehicles.filter(deckLabelVisible),
+      data: overviewMode ? markerVehicles.filter(v => v.vehicleId === S.selectedId) : markerVehicles.filter(deckLabelVisible),
       pickable: false,
       billboard: true,
       fontFamily: 'JetBrains Mono, monospace',
@@ -1118,8 +1209,14 @@ function buildDeckLayers() {
   return layers;
 }
 
-function renderMapLayers() {
+function performRenderMapLayers() {
+  mapRenderFrame = null;
   deckOverlay.setProps({ layers: buildDeckLayers() });
+}
+
+function renderMapLayers() {
+  if (mapRenderFrame != null) return;
+  mapRenderFrame = requestAnimationFrame(performRenderMapLayers);
 }
 
 mapCore.on('load', () => {
