@@ -35,9 +35,20 @@ let sidebarScrollTimer = null;
 let pendingSidebarRender = false;
 let pendingVehiclesPayload = null;
 let pendingAlertsPayload = null;
+let filteredVehiclesCache = { vehiclesRef:null, tab:null, filterRoute:null, result:[] };
+let favoriteVehiclesCache = { vehiclesRef:null, favKey:null, result:[] };
 
 function vehicleAlertCount(v) {
   return v?.alertCount ?? v?.alerts?.length ?? 0;
+}
+
+function syncEtaTargetElements(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('[data-eta]').forEach((el) => {
+    const key = el.dataset.eta;
+    if (!key || !S.etaTargets[key]) return;
+    S.etaTargets[key].el = el;
+  });
 }
 
 function setHtmlIfChanged(el, html) {
@@ -45,6 +56,7 @@ function setHtmlIfChanged(el, html) {
   if (htmlCache.get(el) === html) return false;
   el.innerHTML = html;
   htmlCache.set(el, html);
+  syncEtaTargetElements(el);
   return true;
 }
 
@@ -235,11 +247,13 @@ function etaPillFromDeparture(dep, keySeed='sched') {
 function startEtaTicker() {
   if (S.etaTimer) clearInterval(S.etaTimer);
   S.etaTimer = setInterval(() => {
-    const els = document.querySelectorAll('[data-eta]');
-    els.forEach(el => {
-      const key = el.dataset.eta;
+    Object.keys(S.etaTargets).forEach((key) => {
       const target = S.etaTargets[key];
-      if (!target) return;
+      const el = target?.el;
+      if (!el || !el.isConnected) {
+        delete S.etaTargets[key];
+        return;
+      }
       const mins = target.iso ? minsUntil(target.iso) : target.ts!=null ? ((target.ts - Date.now()) / 60000) : null;
       const cd   = fmtCountdown(mins);
       if (!cd) return;
@@ -252,6 +266,34 @@ function startEtaTicker() {
 // Stop ticker and clear targets when rebuilding DOM
 function resetEtaTargets() {
   S.etaTargets = {};
+}
+
+function favoriteKey() {
+  return S.favs.join('|');
+}
+
+function favoriteSet() {
+  if (favoriteVehiclesCache.favSet && favoriteVehiclesCache.favKey === favoriteKey()) return favoriteVehiclesCache.favSet;
+  favoriteVehiclesCache.favKey = favoriteKey();
+  favoriteVehiclesCache.favSet = new Set(S.favs);
+  return favoriteVehiclesCache.favSet;
+}
+
+function isFavoriteVehicle(vehicleId) {
+  return favoriteSet().has(vehicleId);
+}
+
+function favoriteVehicles() {
+  const favKey = favoriteKey();
+  if (favoriteVehiclesCache.vehiclesRef === S.vehicles && favoriteVehiclesCache.favKey === favKey) return favoriteVehiclesCache.result;
+  const favs = favoriteSet();
+  favoriteVehiclesCache = {
+    ...favoriteVehiclesCache,
+    vehiclesRef: S.vehicles,
+    favKey,
+    result: S.vehicles.filter(v => favs.has(v.vehicleId))
+  };
+  return favoriteVehiclesCache.result;
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -958,7 +1000,10 @@ function closeNearby() {
 // FILTER + TABS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function getFiltered() {
-  return S.vehicles.filter(v => {
+  if (filteredVehiclesCache.vehiclesRef === S.vehicles && filteredVehiclesCache.tab === S.tab && filteredVehiclesCache.filterRoute === S.filterRoute) {
+    return filteredVehiclesCache.result;
+  }
+  const result = S.vehicles.filter(v => {
     if (S.filterRoute) return v.routeShort===S.filterRoute;
     if (S.tab==='tram')   return v.routeType==='tram';
     if (S.tab==='train')  return v.routeType==='train';
@@ -966,6 +1011,13 @@ function getFiltered() {
     if (S.tab==='alerts') return vehicleAlertCount(v)>0;
     return true;
   });
+  filteredVehiclesCache = {
+    vehiclesRef: S.vehicles,
+    tab: S.tab,
+    filterRoute: S.filterRoute,
+    result
+  };
+  return result;
 }
 
 function setTab(t, el) {
@@ -1013,8 +1065,9 @@ function renderSidebar() {
 
 function vehicleGroupsFor(list) {
   const to = {tram:0,train:1,bus:2};
+  const favs = favoriteSet();
   const sorted = [...list].sort((a,b) => {
-    const fa=S.favs.includes(a.vehicleId)?0:1, fb=S.favs.includes(b.vehicleId)?0:1;
+    const fa=favs.has(a.vehicleId)?0:1, fb=favs.has(b.vehicleId)?0:1;
     if (fa!==fb) return fa-fb;
     if (to[a.routeType]!==to[b.routeType]) return to[a.routeType]-to[b.routeType];
     const latDiff = (b.lat || 0) - (a.lat || 0);
@@ -1052,7 +1105,7 @@ function renderVehicleGroupCards(scroll, groups, extraHtml='') {
     const ico = isType?tIcon[gk]:(tIcon[gvs[0].routeType]||'🚌');
     html += `<div class="vg-hdr" style="color:${gc}">${ico} ${gl} <span class="vg-pill" style="background:${gpb};color:${gc}">${gvs.length}</span></div>`;
     gvs.forEach((v,i) => {
-      const sel=v.vehicleId===S.selectedId, fav=S.favs.includes(v.vehicleId);
+      const sel=v.vehicleId===S.selectedId, fav=isFavoriteVehicle(v.vehicleId);
       const col=vColor(v.routeType,v.speed), bg=vBg(v.routeType,v.speed);
       const spd=v.speed>0.5?`${Math.round(v.speed)} km/h`:'Stopped';
       const spdC=v.speed>0.5?'var(--ok)':'var(--stopped)';
@@ -1107,7 +1160,7 @@ function renderVList(scroll) {
 }
 
 function renderFavorites(scroll) {
-  const favVehicles = S.vehicles.filter(v => S.favs.includes(v.vehicleId));
+  const favVehicles = favoriteVehicles();
   const hdr = `<div class="planner-head"><button class="stop-back" onclick="openFavorites()">←</button><div><div class="planner-title">Favorites</div><div class="planner-sub">${favVehicles.length} saved vehicle${favVehicles.length===1?'':'s'}</div></div></div>`;
   if (!favVehicles.length) {
     setHtmlIfChanged(scroll, hdr + `<div class="empty"><div class="empty-i">★</div><div class="empty-t">No favorites saved yet</div><div class="empty-s">Open a vehicle and tap Save vehicle to add it here.</div></div>`);
@@ -1408,6 +1461,7 @@ function toggleFav() {
   if (!S.selectedId) return;
   const i=S.favs.indexOf(S.selectedId);
   if (i>-1) S.favs.splice(i,1); else S.favs.push(S.selectedId);
+  favoriteVehiclesCache.vehiclesRef = null;
   saveFavs();
   updateDetailActionButtons();
   syncControlState();
@@ -1422,7 +1476,7 @@ function renderDetailContent(v) {
   const delayedStop=firstDelayedStop(v.upcomingStops), delayInfo=delayedStop?fmtDelay(deriveDelaySeconds(delayedStop)):null;
   const currentStop = vehicleCurrentStop(v);
   const nextStop = vehicleNextStop(v);
-  const favActive = S.favs.includes(v.vehicleId);
+  const favActive = isFavoriteVehicle(v.vehicleId);
 
   // Crowd card
   const occInfo = v.occupancy ? (CROWD[v.occupancy.status]||{label:'Unknown',emoji:'⬜',pct:0,color:'var(--ink3)'}) : null;
@@ -1586,6 +1640,7 @@ function renderStopTimelineRows(el, stops, type, hasRT) {
   });
   html += '</div>';
   el.innerHTML = html;
+  syncEtaTargetElements(el);
 }
 
 function renderStopTimelineDirect(upcoming, type, hasRT) {
@@ -1680,16 +1735,34 @@ document.addEventListener('click', e => {
 async function doSearch(q) {
   const ql=q.toLowerCase();
   let html='';
+  const routeMatches = {};
+  const routeCounts = {};
+  const vehicleMatches = [];
   
-  // Routes
-  const uniq={};
-  S.vehicles.filter(v=>v.routeShort?.toLowerCase().includes(ql)||v.routeLong?.toLowerCase().includes(ql)||v.vehicleId.toLowerCase().includes(ql))
-    .forEach(v=>{ if (!uniq[v.routeShort]) uniq[v.routeShort]=v; });
-  const rv=Object.values(uniq).slice(0,5);
+  S.vehicles.forEach((v) => {
+    const vehicleId = v.vehicleId?.toLowerCase() || '';
+    const routeShort = v.routeShort?.toLowerCase() || '';
+    const routeLong = v.routeLong?.toLowerCase() || '';
+    const headsign = v.headsign?.toLowerCase() || '';
+    if (v.routeShort) routeCounts[v.routeShort] = (routeCounts[v.routeShort] || 0) + 1;
+
+    if (routeShort.includes(ql) || routeLong.includes(ql) || vehicleId.includes(ql)) {
+      if (v.routeShort && !routeMatches[v.routeShort]) routeMatches[v.routeShort] = v;
+    }
+
+    if (
+      vehicleMatches.length < 5 &&
+      (vehicleId.includes(ql) || routeShort.includes(ql) || routeLong.includes(ql) || headsign.includes(ql))
+    ) {
+      vehicleMatches.push(v);
+    }
+  });
+
+  const rv=Object.values(routeMatches).slice(0,5);
   if (rv.length) {
     html+=`<div class="dd-sec">🗺️ Active Routes</div>`;
     rv.forEach(v => {
-      const cnt=S.vehicles.filter(x=>x.routeShort===v.routeShort).length;
+      const cnt=routeCounts[v.routeShort] || 0;
       const col=vColor(v.routeType,1), bg=vBg(v.routeType,1);
       const ico=v.routeType==='tram'?'🚊':v.routeType==='train'?'🚆':'🚌';
       html+=`<div class="dd-item" onclick="filterByRoute('${v.routeShort}')">
@@ -1699,14 +1772,6 @@ async function doSearch(q) {
     });
   }
 
-  const vehicleMatches = S.vehicles
-    .filter(v =>
-      v.vehicleId?.toLowerCase().includes(ql) ||
-      v.routeShort?.toLowerCase().includes(ql) ||
-      v.routeLong?.toLowerCase().includes(ql) ||
-      v.headsign?.toLowerCase().includes(ql)
-    )
-    .slice(0,5);
   if (vehicleMatches.length) {
     html+=`<div class="dd-sec">Vehicles</div>`;
     vehicleMatches.forEach(v => {

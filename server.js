@@ -40,10 +40,13 @@ const store = {
   trips: {},
   alerts: [],
   routeAlertCounts: {},
+  routeAlerts: {},
   routes: {},
   trips_map: {},
   stops: {},
+  stopList: [],
   stopSearchIndex: [],
+  stopSearchLookup: [],
   stop_times_compact: {},
   stopTripIndex: {},
   shapesById: null,
@@ -90,7 +93,14 @@ function clearRuntimeCaches() {
 }
 
 function matchedAlertsForVehicle(vehicle) {
-  return store.alerts.filter((alert) => alert.routes.includes(vehicle.routeId) || alert.routes.includes(vehicle.routeShort));
+  const matched = new Map();
+  const routeKeys = [vehicle?.routeId, vehicle?.routeShort].filter(Boolean);
+  routeKeys.forEach((routeKey) => {
+    (store.routeAlerts[routeKey] || []).forEach((alert) => {
+      if (!matched.has(alert.id)) matched.set(alert.id, alert);
+    });
+  });
+  return [...matched.values()];
 }
 
 function alertCountForVehicle(vehicle) {
@@ -355,6 +365,12 @@ async function loadStatic(force = false) {
       lon: stop.lon,
       code: stop.code,
     }));
+    store.stopSearchLookup = store.stopSearchIndex.map((stop) => ({
+      stop,
+      nameLc: String(stop.name || '').toLowerCase(),
+      codeLc: String(stop.code || '').toLowerCase(),
+      stopIdLc: String(stop.stopId || '').toLowerCase(),
+    }));
     await writeStopSearchIndexFile();
     store.stop_times_compact = stopTimesCompact || {};
     store.shapesById = null;
@@ -379,6 +395,17 @@ async function loadStatic(force = false) {
         });
       });
     });
+
+    store.stopList = Object.entries(store.stops)
+      .filter(([, stop]) => stop.lat && stop.lon)
+      .map(([id, stop]) => ({
+        stopId: id,
+        name: stop.name,
+        code: stop.code,
+        lat: stop.lat,
+        lon: stop.lon,
+        routeTypes: [...(store.stopRouteTypes[id] || [])],
+      }));
 
     store.gtfsVersion = version;
     store.staticLoaded = true;
@@ -552,10 +579,13 @@ async function pollAlerts() {
       });
 
     store.routeAlertCounts = {};
+    store.routeAlerts = {};
     store.alerts.forEach((alert) => {
       alert.routes.forEach((routeKey) => {
         if (!routeKey) return;
         store.routeAlertCounts[routeKey] = (store.routeAlertCounts[routeKey] || 0) + 1;
+        if (!store.routeAlerts[routeKey]) store.routeAlerts[routeKey] = [];
+        store.routeAlerts[routeKey].push(alert);
       });
     });
 
@@ -768,14 +798,17 @@ app.get('/api/stops/search', (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   if (!q || q.length < 2) return res.json({ stops: [] });
 
-  const results = store.stopSearchIndex
-    .filter((s) =>
-      s.name?.toLowerCase().includes(q) ||
-      s.code?.toLowerCase().includes(q) ||
-      s.stopId.toLowerCase().includes(q)
-    )
-    .slice(0, 20)
-    .map((s) => ({ ...s }));
+  const results = [];
+  for (const entry of store.stopSearchLookup) {
+    if (
+      entry.nameLc.includes(q) ||
+      entry.codeLc.includes(q) ||
+      entry.stopIdLc.includes(q)
+    ) {
+      results.push({ ...entry.stop });
+      if (results.length >= 20) break;
+    }
+  }
 
   return res.json({ stops: results });
 });
@@ -800,22 +833,11 @@ app.get('/api/stops/nearby', (req, res) => {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  const stopRouteTypes = store.stopRouteTypes || {};
-
-  const results = Object.entries(store.stops)
-    .filter(([, s]) => s.lat && s.lon)
-    .map(([id, s]) => {
-      const dist = haversine(lat, lon, s.lat, s.lon);
-      return {
-        stopId: id,
-        name: s.name,
-        code: s.code,
-        lat: s.lat,
-        lon: s.lon,
-        dist,
-        routeTypes: [...(stopRouteTypes[id] || [])],
-      };
-    })
+  const results = store.stopList
+    .map((stop) => ({
+      ...stop,
+      dist: haversine(lat, lon, stop.lat, stop.lon),
+    }))
     .filter((s) => s.dist <= radius)
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 30);
