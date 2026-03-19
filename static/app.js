@@ -1040,11 +1040,13 @@ function focusVehicleForFollow(v, animate = true) {
   const mapSize = map.getSize();
   const topSafe = Math.max(112, window.innerHeight * 0.14);
   const desiredY = Math.max(topSafe, Math.min(detailRect.top - 104, mapSize.y * 0.46));
-  const vehiclePoint = map.project([v.lat, v.lon], zoom);
-  const targetCenterPoint = { x: vehiclePoint.x, y: vehiclePoint.y + (mapSize.y / 2 - desiredY) };
-  const targetCenter = map.unproject(targetCenterPoint, zoom);
-
-  map.setView(targetCenter, zoom, { animate, duration: animate ? 0.45 : 0 });
+  mapCore.easeTo({
+    center: [v.lon, v.lat],
+    zoom,
+    offset: [0, desiredY - (mapSize.y / 2)],
+    duration: animate ? 450 : 0,
+    essential: true
+  });
 }
 
 function toggleFollow() {

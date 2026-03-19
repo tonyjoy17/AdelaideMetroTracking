@@ -66,6 +66,7 @@ const store = {
   signatures: {
     vehicles: null,
     vehicleById: new Map(),
+    vehicleSignatureById: new Map(),
   },
 };
 
@@ -108,6 +109,7 @@ function alertCountForVehicle(vehicle) {
 }
 
 function serializeVehicleSummary(vehicle) {
+  const alertCount = alertCountForVehicle(vehicle);
   return {
     vehicleId: vehicle.vehicleId,
     label: vehicle.label,
@@ -127,8 +129,35 @@ function serializeVehicleSummary(vehicle) {
     stopSeq: vehicle.stopSeq,
     timestamp: vehicle.timestamp,
     occupancy: vehicle.occupancy,
-    alertCount: alertCountForVehicle(vehicle),
+    alertCount,
   };
+}
+
+function vehicleSummarySignature(summary) {
+  const occupancy = summary.occupancy
+    ? `${summary.occupancy.status}|${summary.occupancy.label}|${summary.occupancy.emoji}|${summary.occupancy.pct}`
+    : '';
+  return [
+    summary.vehicleId,
+    summary.label,
+    summary.tripId,
+    summary.routeId,
+    summary.routeShort,
+    summary.routeLong,
+    summary.routeType,
+    summary.headsign,
+    summary.shapeId,
+    summary.directionId,
+    summary.lat,
+    summary.lon,
+    summary.bearing,
+    summary.speed,
+    summary.status,
+    summary.stopSeq,
+    summary.timestamp,
+    occupancy,
+    summary.alertCount,
+  ].join('~');
 }
 
 function vehiclesPayload() {
@@ -141,14 +170,17 @@ function vehiclesPayload() {
 
 function vehiclesDeltaPayload() {
   const previous = store.signatures.vehicleById;
+  const previousSignatures = store.signatures.vehicleSignatureById;
   const next = new Map();
+  const nextSignatures = new Map();
   const upserted = [];
 
   store.vehicles.forEach((vehicle) => {
     const summary = serializeVehicleSummary(vehicle);
+    const signature = vehicleSummarySignature(summary);
     next.set(summary.vehicleId, summary);
-    const prevSummary = previous.get(summary.vehicleId);
-    if (!prevSummary || JSON.stringify(prevSummary) !== JSON.stringify(summary)) {
+    nextSignatures.set(summary.vehicleId, signature);
+    if (previousSignatures.get(summary.vehicleId) !== signature) {
       upserted.push(summary);
     }
   });
@@ -165,6 +197,7 @@ function vehiclesDeltaPayload() {
     removed,
     hasChanges: upserted.length > 0 || removed.length > 0,
     next,
+    nextSignatures,
   };
 }
 
@@ -181,6 +214,7 @@ function broadcastVehiclesIfChanged() {
   if (!delta.hasChanges) return;
   store.signatures.vehicles = store.lastUpdated.vehicles;
   store.signatures.vehicleById = delta.next;
+  store.signatures.vehicleSignatureById = delta.nextSignatures;
   broadcastSse('vehicles_delta', {
     timestamp: delta.timestamp,
     count: delta.count,
