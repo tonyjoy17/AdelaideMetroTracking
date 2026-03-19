@@ -42,6 +42,21 @@ let favoriteVehiclesCache = { vehiclesRef:null, favKey:null, result:[] };
 let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
 
+function mergeVehicleState(nextVehicles) {
+  const previousById = new Map(S.vehicles.map(v => [v.vehicleId, v]));
+  const mergedVehicles = nextVehicles.map((vehicle) => {
+    const previous = previousById.get(vehicle.vehicleId);
+    if (!previous) return vehicle;
+    return {
+      ...previous,
+      ...vehicle,
+      upcomingStops: vehicle.upcomingStops ?? previous.upcomingStops,
+      alerts: vehicle.alerts ?? previous.alerts,
+    };
+  });
+  S.vehicles = mergedVehicles;
+}
+
 function vehicleAlertCount(v) {
   return v?.alertCount ?? v?.alerts?.length ?? 0;
 }
@@ -773,6 +788,7 @@ function buildDeckLayers() {
       radiusUnits: 'pixels',
       stroked: false,
       filled: true,
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getRadius: d => deckVehicleRadius(d) + (d.vehicleId === S.selectedId ? 9 : 6),
       getFillColor: d => d.vehicleId === S.selectedId
@@ -787,6 +803,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 1.5,
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getRadius: d => d.speed > 0.5 ? 5.5 : 4.5,
       getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), S.followMode ? 0.22 : 0.94),
@@ -800,6 +817,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 2.5,
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getRadius: d => deckVehicleRadius(d),
       getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), d.vehicleId === S.selectedId ? 1 : (S.followMode ? 0.12 : 0.98)),
@@ -814,6 +832,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 2,
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getRadius: d => deckVehicleRadius(d) + (d.vehicleId === S.selectedId ? 7 : 4),
       getLineColor: d => d.vehicleId === S.selectedId
@@ -826,6 +845,7 @@ function buildDeckLayers() {
       pickable: false,
       billboard: true,
       fontFamily: 'JetBrains Mono, monospace',
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getText: d => (d.routeShort || '').substring(0, 6),
       getColor: () => textColor,
@@ -840,6 +860,7 @@ function buildDeckLayers() {
       data: markerVehicles.filter(v => v.routeType === 'tram' && v.occupancy?.emoji && deckOccupancyVisible(v)),
       pickable: false,
       billboard: true,
+      transitions: { getPosition: 900 },
       getPosition: d => [d.lon, d.lat],
       getText: d => d.occupancy.emoji,
       getColor: () => textColor,
@@ -2088,20 +2109,7 @@ const scheduleVehicleUiRefresh = debounce(() => {
 }, UI_DEBOUNCE_MS);
 
 async function applyVehiclesPayloadNow(data) {
-  const nextVehicles = data.vehicles || [];
-  if (S.selectedId) {
-    const previousSelected = S.vehicles.find(x => x.vehicleId === S.selectedId);
-    const selectedIndex = nextVehicles.findIndex(x => x.vehicleId === S.selectedId);
-    if (previousSelected && selectedIndex > -1) {
-      nextVehicles[selectedIndex] = {
-        ...previousSelected,
-        ...nextVehicles[selectedIndex],
-        upcomingStops: previousSelected.upcomingStops || [],
-        alerts: previousSelected.alerts || [],
-      };
-    }
-  }
-  S.vehicles = nextVehicles;
+  mergeVehicleState(data.vehicles || []);
   if (data.timestamp) {
     document.getElementById('feed-time').textContent = new Date(data.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'});
   }
@@ -2137,7 +2145,7 @@ async function applyVehicleDeltaPayloadNow(data) {
     }
   });
 
-  S.vehicles = [...previousById.values()];
+  mergeVehicleState([...previousById.values()]);
   if (data.timestamp) {
     document.getElementById('feed-time').textContent = new Date(data.timestamp).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'});
   }
