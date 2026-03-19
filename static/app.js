@@ -27,6 +27,8 @@ const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const SELECTED_DETAIL_REFRESH_MS = 10_000;
+const VEHICLE_MOVE_ANIM_MS = 1100;
+const VEHICLE_MOVE_MAX_METRES = 2500;
 const UI_DEBOUNCE_MS = 120;
 const SIDEBAR_SCROLL_RESUME_MS = 15_000;
 let actionFeedbackTimer = null;
@@ -41,6 +43,96 @@ let filteredVehiclesCache = { vehiclesRef:null, tab:null, filterRoute:null, resu
 let favoriteVehiclesCache = { vehiclesRef:null, favKey:null, result:[] };
 let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
+let vehicleAnimationFrame = null;
+
+function animateVehiclePositionsFrame(now = performance.now()) {
+  let hasActiveAnimation = false;
+  Object.values(S.prevPositions).forEach((entry) => {
+    if (!entry) return;
+    if (now >= entry.endAt) {
+      entry.lat = entry.targetLat;
+      entry.lon = entry.targetLon;
+      return;
+    }
+    const progress = Math.max(0, Math.min(1, (now - entry.startAt) / Math.max(1, entry.endAt - entry.startAt)));
+    const eased = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    entry.lat = entry.fromLat + (entry.targetLat - entry.fromLat) * eased;
+    entry.lon = entry.fromLon + (entry.targetLon - entry.fromLon) * eased;
+    hasActiveAnimation = true;
+  });
+  renderMapLayers();
+  if (hasActiveAnimation) {
+    vehicleAnimationFrame = requestAnimationFrame(animateVehiclePositionsFrame);
+  } else {
+    vehicleAnimationFrame = null;
+  }
+}
+
+function scheduleVehiclePositionAnimation() {
+  if (vehicleAnimationFrame != null) return;
+  renderMapLayers();
+  vehicleAnimationFrame = requestAnimationFrame(animateVehiclePositionsFrame);
+}
+
+function updateDisplayedVehiclePositions(nextVehicles) {
+  const activeIds = new Set();
+  const now = performance.now();
+  nextVehicles.forEach((vehicle) => {
+    if (!vehicle?.vehicleId || !hasUsableCoords(vehicle)) {
+      if (vehicle?.vehicleId) delete S.prevPositions[vehicle.vehicleId];
+      return;
+    }
+    activeIds.add(vehicle.vehicleId);
+    const existing = S.prevPositions[vehicle.vehicleId];
+    if (!existing) {
+      S.prevPositions[vehicle.vehicleId] = {
+        lat: vehicle.lat,
+        lon: vehicle.lon,
+        fromLat: vehicle.lat,
+        fromLon: vehicle.lon,
+        targetLat: vehicle.lat,
+        targetLon: vehicle.lon,
+        startAt: now,
+        endAt: now,
+      };
+      return;
+    }
+    const currentLat = existing.lat ?? existing.targetLat;
+    const currentLon = existing.lon ?? existing.targetLon;
+    const distance = haversine(currentLat, currentLon, vehicle.lat, vehicle.lon);
+    if (!Number.isFinite(distance) || distance > VEHICLE_MOVE_MAX_METRES) {
+      existing.lat = vehicle.lat;
+      existing.lon = vehicle.lon;
+      existing.fromLat = vehicle.lat;
+      existing.fromLon = vehicle.lon;
+      existing.targetLat = vehicle.lat;
+      existing.targetLon = vehicle.lon;
+      existing.startAt = now;
+      existing.endAt = now;
+      return;
+    }
+    existing.fromLat = currentLat;
+    existing.fromLon = currentLon;
+    existing.lat = currentLat;
+    existing.lon = currentLon;
+    existing.targetLat = vehicle.lat;
+    existing.targetLon = vehicle.lon;
+    existing.startAt = now;
+    existing.endAt = now + VEHICLE_MOVE_ANIM_MS;
+  });
+
+  Object.keys(S.prevPositions).forEach((vehicleId) => {
+    if (!activeIds.has(vehicleId)) delete S.prevPositions[vehicleId];
+  });
+
+  scheduleVehiclePositionAnimation();
+}
+
+function displayedVehiclePosition(v) {
+  const entry = S.prevPositions[v.vehicleId];
+  if (!entry) return [v.lon, v.lat];
+  return [entry.lon ?? v.lon, entry.lat ?? v.lat];
+}
 
 function mergeVehicleState(nextVehicles) {
   const previousById = new Map(S.vehicles.map(v => [v.vehicleId, v]));
@@ -55,6 +147,7 @@ function mergeVehicleState(nextVehicles) {
     };
   });
   S.vehicles = mergedVehicles;
+  updateDisplayedVehiclePositions(mergedVehicles);
 }
 
 function vehicleAlertCount(v) {
@@ -768,8 +861,9 @@ function deckOccupancyVisible(v) {
 function vehicleDeckData() {
   const bounds = map.getBounds ? map.getBounds().pad(MARKER_VIEWPORT_PAD) : null;
   const visibleVehicles = vehiclesForMapView()
-    .filter(v => v?.lat && v?.lon)
-    .filter(v => shouldRenderMarker(v, bounds));
+    .filter(hasUsableCoords)
+    .filter(v => shouldRenderMarker(v, bounds))
+    .sort((a, b) => String(a.vehicleId || '').localeCompare(String(b.vehicleId || '')));
   return {
     markerVehicles: visibleVehicles.filter(v => !useBusDot(v)),
     busVehicles: visibleVehicles.filter(v => useBusDot(v)),
@@ -788,8 +882,7 @@ function buildDeckLayers() {
       radiusUnits: 'pixels',
       stroked: false,
       filled: true,
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getRadius: d => deckVehicleRadius(d) + (d.vehicleId === S.selectedId ? 9 : 6),
       getFillColor: d => d.vehicleId === S.selectedId
         ? deckColorWithAlpha(deckVehicleColor(d), S.theme === 'night' ? 0.26 : 0.18)
@@ -803,8 +896,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 1.5,
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getRadius: d => d.speed > 0.5 ? 5.5 : 4.5,
       getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), S.followMode ? 0.22 : 0.94),
       getLineColor: () => deckColorWithAlpha(DECK_COLORS.white, S.followMode ? 0.35 : 1),
@@ -817,8 +909,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 2.5,
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getRadius: d => deckVehicleRadius(d),
       getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), d.vehicleId === S.selectedId ? 1 : (S.followMode ? 0.12 : 0.98)),
       getLineColor: d => deckColorWithAlpha(DECK_COLORS.white, d.vehicleId === S.selectedId ? 1 : 0.98),
@@ -832,8 +923,7 @@ function buildDeckLayers() {
       stroked: true,
       lineWidthUnits: 'pixels',
       lineWidthMinPixels: 2,
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getRadius: d => deckVehicleRadius(d) + (d.vehicleId === S.selectedId ? 7 : 4),
       getLineColor: d => d.vehicleId === S.selectedId
         ? deckColorWithAlpha(deckVehicleColor(d), 0.45)
@@ -845,8 +935,7 @@ function buildDeckLayers() {
       pickable: false,
       billboard: true,
       fontFamily: 'JetBrains Mono, monospace',
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getText: d => (d.routeShort || '').substring(0, 6),
       getColor: () => textColor,
       outlineWidth: 2,
@@ -860,8 +949,7 @@ function buildDeckLayers() {
       data: markerVehicles.filter(v => v.routeType === 'tram' && v.occupancy?.emoji && deckOccupancyVisible(v)),
       pickable: false,
       billboard: true,
-      transitions: { getPosition: 900 },
-      getPosition: d => [d.lon, d.lat],
+      getPosition: displayedVehiclePosition,
       getText: d => d.occupancy.emoji,
       getColor: () => textColor,
       outlineWidth: 2,
