@@ -1,11 +1,11 @@
 {
-  "version": "1633",
-  "generatedAt": "2026-03-17T15:40:01.564Z",
+  "version": "1634",
+  "generatedAt": "2026-03-19T15:25:05.920Z",
   "counts": {
     "routes": 571,
-    "trips": 21926,
+    "trips": 22496,
     "stops": 7811,
-    "stopTimesTrips": 21926,
-    "shapes": 1450
+    "stopTimesTrips": 22496,
+    "shapes": 1451
   }
 }
