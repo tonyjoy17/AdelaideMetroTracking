@@ -763,7 +763,7 @@ function vehicleDeckData() {
 
 function buildDeckLayers() {
   const { markerVehicles, busVehicles } = vehicleDeckData();
-  const textColor = S.theme === 'night' ? DECK_COLORS.nightText : DECK_COLORS.dayText;
+  const textColor = DECK_COLORS.white;
 
   const layers = [
     new deck.ScatterplotLayer({
@@ -829,6 +829,8 @@ function buildDeckLayers() {
       getPosition: d => [d.lon, d.lat],
       getText: d => (d.routeShort || '').substring(0, 6),
       getColor: () => textColor,
+      outlineWidth: 2,
+      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.75),
       getSize: d => d.vehicleId === S.selectedId ? 15 : 12,
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'center',
@@ -841,6 +843,8 @@ function buildDeckLayers() {
       getPosition: d => [d.lon, d.lat],
       getText: d => d.occupancy.emoji,
       getColor: () => textColor,
+      outlineWidth: 2,
+      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.75),
       getSize: 12,
       getPixelOffset: [0, 18],
       getTextAnchor: 'middle',
