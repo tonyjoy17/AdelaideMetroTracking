@@ -27,8 +27,11 @@ const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const SELECTED_DETAIL_REFRESH_MS = 10_000;
-const VEHICLE_MOVE_ANIM_MS = 1100;
-const VEHICLE_MOVE_MAX_METRES = 2500;
+const VEHICLE_MOVE_ANIM_MS = 1600;
+const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
+const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
+const VEHICLE_EXTRAPOLATE_MS = 10000;
+const VEHICLE_EXTRAPOLATE_MAX_METRES = 220;
 const UI_DEBOUNCE_MS = 120;
 const SIDEBAR_SCROLL_RESUME_MS = 15_000;
 let actionFeedbackTimer = null;
@@ -45,6 +48,30 @@ let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
 
+function moveLatLonByMeters(lat, lon, bearingDeg, metres) {
+  const distance = Math.max(0, metres);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(bearingDeg) || !distance) {
+    return { lat, lon };
+  }
+  const radius = 6371000;
+  const angularDistance = distance / radius;
+  const bearing = (bearingDeg * Math.PI) / 180;
+  const lat1 = (lat * Math.PI) / 180;
+  const lon1 = (lon * Math.PI) / 180;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+    Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+  );
+  const lon2 = lon1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+    Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+  );
+  return {
+    lat: (lat2 * 180) / Math.PI,
+    lon: ((((lon2 * 180) / Math.PI) + 540) % 360) - 180,
+  };
+}
+
 function animateVehiclePositionsFrame(now = performance.now()) {
   let hasActiveAnimation = false;
   Object.values(S.prevPositions).forEach((entry) => {
@@ -52,6 +79,16 @@ function animateVehiclePositionsFrame(now = performance.now()) {
     if (now >= entry.endAt) {
       entry.lat = entry.targetLat;
       entry.lon = entry.targetLon;
+      const extrapolatedMs = Math.min(Math.max(0, now - entry.endAt), VEHICLE_EXTRAPOLATE_MS);
+      const speedMps = Math.max(0, Number(entry.speed || 0)) / 3.6;
+      const extrapolatedMetres = Math.min(VEHICLE_EXTRAPOLATE_MAX_METRES, speedMps * (extrapolatedMs / 1000));
+      const allowExtrapolation = S.followMode && entry.vehicleId === S.selectedId;
+      if (allowExtrapolation && extrapolatedMs > 0 && extrapolatedMetres > 0.5 && Number(entry.speed || 0) > 3 && Number.isFinite(entry.bearing)) {
+        const projected = moveLatLonByMeters(entry.targetLat, entry.targetLon, entry.bearing, extrapolatedMetres);
+        entry.lat = projected.lat;
+        entry.lon = projected.lon;
+        hasActiveAnimation = true;
+      }
       return;
     }
     const progress = Math.max(0, Math.min(1, (now - entry.startAt) / Math.max(1, entry.endAt - entry.startAt)));
@@ -86,27 +123,46 @@ function updateDisplayedVehiclePositions(nextVehicles) {
     const existing = S.prevPositions[vehicle.vehicleId];
     if (!existing) {
       S.prevPositions[vehicle.vehicleId] = {
+        vehicleId: vehicle.vehicleId,
         lat: vehicle.lat,
         lon: vehicle.lon,
         fromLat: vehicle.lat,
         fromLon: vehicle.lon,
         targetLat: vehicle.lat,
         targetLon: vehicle.lon,
+        vehicleId: vehicle.vehicleId,
+        timestamp: vehicle.timestamp || 0,
+        speed: vehicle.speed || 0,
+        bearing: vehicle.bearing || 0,
         startAt: now,
         endAt: now,
       };
       return;
     }
+    existing.vehicleId = vehicle.vehicleId;
     const currentLat = existing.lat ?? existing.targetLat;
     const currentLon = existing.lon ?? existing.targetLon;
     const distance = haversine(currentLat, currentLon, vehicle.lat, vehicle.lon);
-    if (!Number.isFinite(distance) || distance > VEHICLE_MOVE_MAX_METRES) {
+    const previousTs = Number(existing.timestamp || 0);
+    const nextTs = Number(vehicle.timestamp || 0);
+    const elapsedSeconds = previousTs > 0 && nextTs > 0
+      ? Math.max(1, Math.min(45, nextTs - previousTs))
+      : 4;
+    const speedMps = Math.max(Number(existing.speed || 0), Number(vehicle.speed || 0), 12) / 3.6;
+    const plausibleDistance = Math.max(
+      VEHICLE_MOVE_MIN_SNAP_METRES,
+      (speedMps * elapsedSeconds) + VEHICLE_MOVE_BASE_BUFFER_METRES
+    );
+    if (!Number.isFinite(distance) || distance > plausibleDistance) {
       existing.lat = vehicle.lat;
       existing.lon = vehicle.lon;
       existing.fromLat = vehicle.lat;
       existing.fromLon = vehicle.lon;
       existing.targetLat = vehicle.lat;
       existing.targetLon = vehicle.lon;
+      existing.timestamp = vehicle.timestamp || 0;
+      existing.speed = vehicle.speed || 0;
+      existing.bearing = vehicle.bearing || 0;
       existing.startAt = now;
       existing.endAt = now;
       return;
@@ -117,6 +173,9 @@ function updateDisplayedVehiclePositions(nextVehicles) {
     existing.lon = currentLon;
     existing.targetLat = vehicle.lat;
     existing.targetLon = vehicle.lon;
+    existing.timestamp = vehicle.timestamp || 0;
+    existing.speed = vehicle.speed || 0;
+    existing.bearing = vehicle.bearing || 0;
     existing.startAt = now;
     existing.endAt = now + VEHICLE_MOVE_ANIM_MS;
   });
@@ -795,6 +854,8 @@ function toggleTheme() {
 const MARKER_VIEWPORT_PAD = 0.35;
 const DETAILED_MARKER_ZOOM = 14;
 const BUS_LABEL_ZOOM = 15.5;
+const ALERT_RING_ZOOM = 14.5;
+const RAIL_LABEL_ZOOM = 14.25;
 let mapInteractionActive = false;
 let currentShapePath = null;
 let currentStopFocus = null;
@@ -825,6 +886,16 @@ function deckVehicleColor(v) {
   return v.speed > 0.5 ? DECK_COLORS.bus : DECK_COLORS.stopped;
 }
 
+function deckVehicleTextColor(v) {
+  return (v.routeType === 'bus' || v.speed <= 0.5) ? DECK_COLORS.dayText : DECK_COLORS.white;
+}
+
+function deckVehicleTextOutlineColor(v) {
+  return (v.routeType === 'bus' || v.speed <= 0.5)
+    ? deckColorWithAlpha(DECK_COLORS.white, 0.92)
+    : deckColorWithAlpha(DECK_COLORS.shadow, 0.78);
+}
+
 function shouldRenderMarker(v, bounds) {
   if (!bounds) return true;
   return bounds.contains([v.lat, v.lon]) || v.vehicleId === S.selectedId;
@@ -847,8 +918,8 @@ function deckVehicleRadius(v) {
 function deckLabelVisible(v) {
   const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
   if (v.vehicleId === S.selectedId) return true;
-  if (vehicleAlertCount(v)) return zoom >= DETAILED_MARKER_ZOOM;
-  if (v.routeType === 'tram' || v.routeType === 'train') return zoom >= 13;
+  if (vehicleAlertCount(v)) return zoom >= ALERT_RING_ZOOM;
+  if (v.routeType === 'tram' || v.routeType === 'train') return zoom >= RAIL_LABEL_ZOOM;
   return zoom >= BUS_LABEL_ZOOM;
 }
 
@@ -872,7 +943,11 @@ function vehicleDeckData() {
 
 function buildDeckLayers() {
   const { markerVehicles, busVehicles } = vehicleDeckData();
-  const textColor = DECK_COLORS.white;
+  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const ringVehicles = markerVehicles.filter((v) => {
+    if (v.vehicleId === S.selectedId) return true;
+    return zoom >= ALERT_RING_ZOOM && vehicleAlertCount(v);
+  });
 
   const layers = [
     new deck.ScatterplotLayer({
@@ -911,12 +986,12 @@ function buildDeckLayers() {
       lineWidthMinPixels: 2.5,
       getPosition: displayedVehiclePosition,
       getRadius: d => deckVehicleRadius(d),
-      getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), d.vehicleId === S.selectedId ? 1 : (S.followMode ? 0.12 : 0.98)),
+      getFillColor: d => deckColorWithAlpha(deckVehicleColor(d), d.vehicleId === S.selectedId ? 1 : (S.followMode ? 0.18 : 1)),
       getLineColor: d => deckColorWithAlpha(DECK_COLORS.white, d.vehicleId === S.selectedId ? 1 : 0.98),
     }),
     new deck.ScatterplotLayer({
       id: 'vehicle-rings',
-      data: markerVehicles.filter(v => v.vehicleId === S.selectedId || vehicleAlertCount(v)),
+      data: ringVehicles,
       pickable: false,
       radiusUnits: 'pixels',
       filled: false,
@@ -937,9 +1012,9 @@ function buildDeckLayers() {
       fontFamily: 'JetBrains Mono, monospace',
       getPosition: displayedVehiclePosition,
       getText: d => (d.routeShort || '').substring(0, 6),
-      getColor: () => textColor,
-      outlineWidth: 2,
-      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.75),
+      getColor: d => deckVehicleTextColor(d),
+      outlineWidth: 2.2,
+      getOutlineColor: d => deckVehicleTextOutlineColor(d),
       getSize: d => d.vehicleId === S.selectedId ? 15 : 12,
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'center',
@@ -951,9 +1026,9 @@ function buildDeckLayers() {
       billboard: true,
       getPosition: displayedVehiclePosition,
       getText: d => d.occupancy.emoji,
-      getColor: () => textColor,
-      outlineWidth: 2,
-      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.75),
+      getColor: () => DECK_COLORS.white,
+      outlineWidth: 2.2,
+      outlineColor: deckColorWithAlpha(DECK_COLORS.shadow, 0.82),
       getSize: 12,
       getPixelOffset: [0, 18],
       getTextAnchor: 'middle',
