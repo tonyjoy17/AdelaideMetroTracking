@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f2f4fb" id="theme-color-meta">
 <title>Adelaide Metro</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/app.css">
 </head>
@@ -126,8 +126,8 @@
   <button class="tab-btn" data-t="alerts" onclick="setTab('alerts',this)" aria-pressed="false"><span class="tab-icon">⚠️</span><span>Alerts</span><span class="tab-ct" id="tc-alerts">0</span></button>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/stop-search-index.js" defer></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9.0.12/dist.min.js"></script>
 <script src="/static/app.js" defer></script>
 </body>
 </html>

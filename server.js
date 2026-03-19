@@ -22,7 +22,6 @@ app.use(express.static(__dirname));
 const V1 = 'https://gtfs.adelaidemetro.com.au/v1/realtime';
 const V2 = 'https://gtfs.adelaidemetro.com.au/v2/realtime';
 const STATIC_DATA_DIR = process.env.STATIC_DATA_DIR || path.join(__dirname, 'data', 'static', 'current');
-const STOP_SEARCH_INDEX_FILE = path.join(__dirname, 'static', 'stop-search-index.js');
 
 const OCCUPANCY_LABELS = {
   0: { label: 'Empty', emoji: '🟢', pct: 5 },
@@ -66,6 +65,7 @@ const store = {
   },
   signatures: {
     vehicles: null,
+    vehicleById: new Map(),
   },
 };
 
@@ -139,6 +139,35 @@ function vehiclesPayload() {
   };
 }
 
+function vehiclesDeltaPayload() {
+  const previous = store.signatures.vehicleById;
+  const next = new Map();
+  const upserted = [];
+
+  store.vehicles.forEach((vehicle) => {
+    const summary = serializeVehicleSummary(vehicle);
+    next.set(summary.vehicleId, summary);
+    const prevSummary = previous.get(summary.vehicleId);
+    if (!prevSummary || JSON.stringify(prevSummary) !== JSON.stringify(summary)) {
+      upserted.push(summary);
+    }
+  });
+
+  const removed = [];
+  previous.forEach((_, vehicleId) => {
+    if (!next.has(vehicleId)) removed.push(vehicleId);
+  });
+
+  return {
+    timestamp: store.lastUpdated.vehicles,
+    count: store.vehicles.length,
+    upserted,
+    removed,
+    hasChanges: upserted.length > 0 || removed.length > 0,
+    next,
+  };
+}
+
 function alertsPayload() {
   return {
     timestamp: store.lastUpdated.alerts,
@@ -148,14 +177,15 @@ function alertsPayload() {
 }
 
 function broadcastVehiclesIfChanged() {
-  const vehicles = store.vehicles.map(serializeVehicleSummary);
-  const nextSignature = JSON.stringify(vehicles);
-  if (nextSignature === store.signatures.vehicles) return;
-  store.signatures.vehicles = nextSignature;
-  broadcastSse('vehicles', {
-    timestamp: store.lastUpdated.vehicles,
-    count: vehicles.length,
-    vehicles,
+  const delta = vehiclesDeltaPayload();
+  if (!delta.hasChanges) return;
+  store.signatures.vehicles = store.lastUpdated.vehicles;
+  store.signatures.vehicleById = delta.next;
+  broadcastSse('vehicles_delta', {
+    timestamp: delta.timestamp,
+    count: delta.count,
+    upserted: delta.upserted,
+    removed: delta.removed,
   });
 }
 
@@ -317,11 +347,6 @@ async function readJson(fileName) {
   return JSON.parse(raw);
 }
 
-async function writeStopSearchIndexFile() {
-  const payload = `window.__STOP_SEARCH_INDEX__ = ${JSON.stringify(store.stopSearchIndex)};\n`;
-  await fs.writeFile(STOP_SEARCH_INDEX_FILE, payload, 'utf8');
-}
-
 async function ensureShapesLoaded() {
   if (store.shapesById) return;
   try {
@@ -371,7 +396,6 @@ async function loadStatic(force = false) {
       codeLc: String(stop.code || '').toLowerCase(),
       stopIdLc: String(stop.stopId || '').toLowerCase(),
     }));
-    await writeStopSearchIndexFile();
     store.stop_times_compact = stopTimesCompact || {};
     store.shapesById = null;
     clearRuntimeCaches();
@@ -813,9 +837,6 @@ app.get('/api/stops/search', (req, res) => {
   return res.json({ stops: results });
 });
 
-app.get('/api/stops/index', (req, res) => {
-  res.json({ stops: store.stopSearchIndex });
-});
 app.get('/api/stops/nearby', (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
