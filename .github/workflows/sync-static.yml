@@ -28,6 +28,9 @@ jobs:
       - name: Sync static data
         run: npm run sync:static
 
+      - name: Build stop trip index
+        run: node scripts/build-stop-trip-index.js ./data/static/current
+
       - name: Commit updated static data
         shell: bash
         run: |

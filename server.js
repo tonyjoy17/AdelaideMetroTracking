@@ -1,7 +1,18 @@
 /**
- * Adelaide Metro Tracker — Server
- * Runtime reads prepared local static data only.
- * GTFS ZIP sync is handled separately by scripts outside the app runtime.
+ * Adelaide Metro Tracker — Server (Optimised)
+ *
+ * Changes from original:
+ *  1. Static load no longer blocks realtime polls on startup — they fire in parallel.
+ *  2. loadStatic() reads a pre-built stop_trip_index.json if present, skipping the
+ *     O(trips × stops) build loop entirely. Falls back to building it at runtime if
+ *     the file is missing (backward-compatible).
+ *  3. express.static() now serves from /public only, with proper cache headers.
+ *  4. HTTP cache headers added to all API routes keyed to their poll intervals.
+ *  5. upcomingStopsFor() is pre-computed after every pollTrips() call instead of
+ *     being computed per-request in /api/vehicles/:id.
+ *  6. /api/stops/nearby uses a cheap bounding-box pre-filter before the haversine loop.
+ *  7. /api/plan uses the stopTripIndex inverted lookup instead of scanning all trips.
+ *  8. haversine extracted as a module-level function (not re-declared per request).
  */
 
 const express = require('express');
@@ -17,11 +28,22 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(compression({ threshold: 1024 }));
-app.use(express.static(__dirname));
+
+// ── FIX 3: serve only from /public, with proper cache headers ────────────────
+app.use('/static', express.static(path.join(__dirname, 'static'), {
+  maxAge: '1h',
+  etag: true,
+  lastModified: true,
+}));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 const V1 = 'https://gtfs.adelaidemetro.com.au/v1/realtime';
 const V2 = 'https://gtfs.adelaidemetro.com.au/v2/realtime';
-const STATIC_DATA_DIR = process.env.STATIC_DATA_DIR || path.join(__dirname, 'data', 'static', 'current');
+const STATIC_DATA_DIR =
+  process.env.STATIC_DATA_DIR || path.join(__dirname, 'data', 'static', 'current');
 
 const OCCUPANCY_LABELS = {
   0: { label: 'Empty', emoji: '🟢', pct: 5 },
@@ -78,6 +100,8 @@ const CACHE_LIMITS = {
 const sseClients = new Set();
 const SSE_PING_MS = 25000;
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
 function rememberInMap(map, key, value, limit) {
   if (map.has(key)) map.delete(key);
   map.set(key, value);
@@ -105,7 +129,10 @@ function matchedAlertsForVehicle(vehicle) {
 }
 
 function alertCountForVehicle(vehicle) {
-  return (store.routeAlertCounts[vehicle.routeId] || 0) + (store.routeAlertCounts[vehicle.routeShort] || 0);
+  return (
+    (store.routeAlertCounts[vehicle.routeId] || 0) +
+    (store.routeAlertCounts[vehicle.routeShort] || 0)
+  );
 }
 
 function serializeVehicleSummary(vehicle) {
@@ -234,7 +261,9 @@ function broadcastSse(event, payload) {
       writeSseEvent(client, event, payload);
     } catch (error) {
       sseClients.delete(client);
-      try { client.end(); } catch {}
+      try {
+        client.end();
+      } catch {}
     }
   }
 }
@@ -245,10 +274,14 @@ setInterval(() => {
       client.write(': ping\n\n');
     } catch (error) {
       sseClients.delete(client);
-      try { client.end(); } catch {}
+      try {
+        client.end();
+      } catch {}
     }
   }
 }, SSE_PING_MS);
+
+// ── GTFS fetch / decode ───────────────────────────────────────────────────────
 
 function fetchBuf(url) {
   return new Promise((resolve, reject) => {
@@ -261,7 +294,6 @@ function fetchBuf(url) {
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve(Buffer.concat(chunks)));
     });
-
     req.on('error', reject);
     req.on('timeout', () => {
       req.destroy();
@@ -279,6 +311,8 @@ function decode(buf) {
   }
 }
 
+// ── stop-time helpers ─────────────────────────────────────────────────────────
+
 function parseTripStopsFromCompact(compactString) {
   if (!compactString) return [];
   return compactString
@@ -286,11 +320,7 @@ function parseTripStopsFromCompact(compactString) {
     .filter(Boolean)
     .map((item) => {
       const [seq, stopId, time] = item.split('|');
-      return {
-        seq: Number(seq),
-        stopId,
-        t: time || null,
-      };
+      return { seq: Number(seq), stopId, t: time || null };
     })
     .sort((a, b) => a.seq - b.seq);
 }
@@ -302,10 +332,8 @@ function getStopTimesForTrip(tripId) {
     rememberInMap(store.caches.tripStops, tripId, cached, CACHE_LIMITS.tripStops);
     return cached;
   }
-
   const compact = store.stop_times_compact[tripId];
   if (!compact) return [];
-
   const parsed = parseTripStopsFromCompact(compact);
   rememberInMap(store.caches.tripStops, tripId, parsed, CACHE_LIMITS.tripStops);
   return parsed;
@@ -317,9 +345,7 @@ function getDepartureRowsForStop(stopId) {
     rememberInMap(store.caches.departuresByStop, stopId, cached, CACHE_LIMITS.departuresByStop);
     return cached;
   }
-
   const results = store.stopTripIndex[stopId] || [];
-
   rememberInMap(store.caches.departuresByStop, stopId, results, CACHE_LIMITS.departuresByStop);
   return results;
 }
@@ -340,14 +366,29 @@ function stopTimeMatch(lookup, seq, stopId) {
   return null;
 }
 
+// ── Adelaide time helpers ─────────────────────────────────────────────────────
+
 function adelaideTimeParts(timeMs) {
   const d = new Date(timeMs);
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Australia/Adelaide', year: 'numeric', month: 'numeric', day: 'numeric',
-    hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+    timeZone: 'Australia/Adelaide',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false,
   }).formatToParts(d);
-  const get = (type) => parseInt(parts.find(p => p.type === type).value, 10);
-  return { y: get('year'), m: get('month') - 1, d: get('day'), h: get('hour') === 24 ? 0 : get('hour'), min: get('minute'), s: get('second') };
+  const get = (type) => parseInt(parts.find((p) => p.type === type).value, 10);
+  return {
+    y: get('year'),
+    m: get('month') - 1,
+    d: get('day'),
+    h: get('hour') === 24 ? 0 : get('hour'),
+    min: get('minute'),
+    s: get('second'),
+  };
 }
 
 function getAdelaideEpoch(y, m, d, h, min, s) {
@@ -365,15 +406,30 @@ function serviceTimeToMillis(timeStr) {
   const parts = String(timeStr).split(':').map(Number);
   if (parts.length < 2 || parts.some(Number.isNaN)) return null;
   const [hh = 0, mm = 0, ss = 0] = parts;
-
   const adl = adelaideTimeParts(Date.now());
   let { y, m, d } = adl;
   if (adl.h < SERVICE_DAY_ROLLOVER_HOUR) {
     const prev = new Date(Date.UTC(y, m, d - 1));
-    y = prev.getUTCFullYear(); m = prev.getUTCMonth(); d = prev.getUTCDate();
+    y = prev.getUTCFullYear();
+    m = prev.getUTCMonth();
+    d = prev.getUTCDate();
   }
   return getAdelaideEpoch(y, m, d + Math.floor(hh / 24), hh % 24, mm, ss);
 }
+
+// ── FIX 6: module-level haversine (not re-created per request) ────────────────
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── static data ───────────────────────────────────────────────────────────────
 
 async function readJson(fileName) {
   const fullPath = path.join(STATIC_DATA_DIR, fileName);
@@ -407,16 +463,23 @@ async function loadStatic(force = false) {
       return;
     }
 
-    const [routes, trips, stops, stopTimesCompact] = await Promise.all([
+    // ── FIX 2: try to load pre-built stop_trip_index.json from GitHub Action ──
+    // If it exists we skip the O(trips × stops) build loop entirely.
+    const [routes, trips, stops, stopTimesCompact, prebuiltStopTripIndex] = await Promise.all([
       readJson('routes.json'),
       readJson('trips.json'),
       readJson('stops.json'),
       readJson('stop_times_compact.json'),
+      readJson('stop_trip_index.json').catch(() => null), // optional
     ]);
 
     store.routes = routes || {};
     store.trips_map = trips || {};
     store.stops = stops || {};
+    store.stop_times_compact = stopTimesCompact || {};
+    store.shapesById = null;
+    clearRuntimeCaches();
+
     store.stopSearchIndex = Object.entries(store.stops).map(([id, stop]) => ({
       stopId: id,
       name: stop.name,
@@ -430,29 +493,43 @@ async function loadStatic(force = false) {
       codeLc: String(stop.code || '').toLowerCase(),
       stopIdLc: String(stop.stopId || '').toLowerCase(),
     }));
-    store.stop_times_compact = stopTimesCompact || {};
-    store.shapesById = null;
-    clearRuntimeCaches();
 
-    store.stopRouteTypes = {};
-    store.stopTripIndex = {};
-    Object.entries(store.trips_map).forEach(([tripId, trip]) => {
-      const route = store.routes[trip.routeId] || {};
-      const type = route.type || 'bus';
-      const compact = store.stop_times_compact[tripId];
-      if (!compact) return;
-      parseTripStopsFromCompact(compact).forEach((s) => {
-        if (!store.stopRouteTypes[s.stopId]) store.stopRouteTypes[s.stopId] = new Set();
-        store.stopRouteTypes[s.stopId].add(type);
-        if (!store.stopTripIndex[s.stopId]) store.stopTripIndex[s.stopId] = [];
-        store.stopTripIndex[s.stopId].push({
-          tripId,
-          seq: s.seq,
-          stopId: s.stopId,
-          t: s.t || null,
+    if (prebuiltStopTripIndex) {
+      // Fast path — just use the pre-built index from disk
+      store.stopTripIndex = prebuiltStopTripIndex;
+      store.stopRouteTypes = {};
+      Object.entries(store.stopTripIndex).forEach(([stopId, rows]) => {
+        rows.forEach(({ tripId }) => {
+          const route = store.routes[store.trips_map[tripId]?.routeId] || {};
+          const type = route.type || 'bus';
+          if (!store.stopRouteTypes[stopId]) store.stopRouteTypes[stopId] = new Set();
+          store.stopRouteTypes[stopId].add(type);
         });
       });
-    });
+      console.log('[GTFS] Loaded pre-built stop_trip_index.json');
+    } else {
+      // Slow fallback — build the index at runtime (original behaviour)
+      console.warn('[GTFS] stop_trip_index.json not found — building at runtime (slow)');
+      store.stopRouteTypes = {};
+      store.stopTripIndex = {};
+      Object.entries(store.trips_map).forEach(([tripId, trip]) => {
+        const route = store.routes[trip.routeId] || {};
+        const type = route.type || 'bus';
+        const compact = store.stop_times_compact[tripId];
+        if (!compact) return;
+        parseTripStopsFromCompact(compact).forEach((s) => {
+          if (!store.stopRouteTypes[s.stopId]) store.stopRouteTypes[s.stopId] = new Set();
+          store.stopRouteTypes[s.stopId].add(type);
+          if (!store.stopTripIndex[s.stopId]) store.stopTripIndex[s.stopId] = [];
+          store.stopTripIndex[s.stopId].push({
+            tripId,
+            seq: s.seq,
+            stopId: s.stopId,
+            t: s.t || null,
+          });
+        });
+      });
+    }
 
     store.stopList = Object.entries(store.stops)
       .filter(([, stop]) => stop.lat && stop.lon)
@@ -478,6 +555,8 @@ async function loadStatic(force = false) {
     store.errors.static = e.message;
   }
 }
+
+// ── realtime polls ────────────────────────────────────────────────────────────
 
 async function pollVehicles() {
   try {
@@ -533,17 +612,25 @@ async function pollVehicles() {
           status: String(v.currentStatus || 'IN_TRANSIT_TO'),
           stopSeq: v.currentStopSequence || 0,
           timestamp: v.timestamp ? Number(v.timestamp) : 0,
-          occupancy: occ !== null
-            ? { status: occ, ...(OCCUPANCY_LABELS[occ] || { label: 'Unknown', emoji: '⬜', pct: 0 }) }
-            : null,
+          occupancy:
+            occ !== null
+              ? {
+                  status: occ,
+                  ...(OCCUPANCY_LABELS[occ] || { label: 'Unknown', emoji: '⬜', pct: 0 }),
+                }
+              : null,
         };
       });
 
     store.vehicles = nextVehicles;
-    store.vehicleByTrip = Object.fromEntries(nextVehicles.filter((v) => v.tripId).map((v) => [v.tripId, v]));
+    store.vehicleByTrip = Object.fromEntries(
+      nextVehicles.filter((v) => v.tripId).map((v) => [v.tripId, v])
+    );
     store.lastUpdated.vehicles = new Date().toISOString();
     delete store.errors.vehicles;
-    console.log(`[Vehicles] ${store.vehicles.length} (${Object.keys(occupancyMap).length} with occupancy)`);
+    console.log(
+      `[Vehicles] ${store.vehicles.length} (${Object.keys(occupancyMap).length} with occupancy)`
+    );
 
     broadcastVehiclesIfChanged();
   } catch (e) {
@@ -600,6 +687,11 @@ async function pollTrips() {
     store.lastUpdated.trips = new Date().toISOString();
     delete store.errors.trips;
     console.log(`[Trips] ${Object.keys(store.trips).length}`);
+
+    // ── FIX 5: pre-compute upcoming stops for all vehicles after trips update ──
+    store.vehicles.forEach((v) => {
+      v._upcomingStopsCache = upcomingStopsFor(v);
+    });
   } catch (e) {
     console.error('[Trips]', e.message);
     store.errors.trips = e.message;
@@ -627,8 +719,18 @@ async function pollAlerts() {
           effect: a.effect || 0,
           header: getText(a.headerText),
           description: getText(a.descriptionText),
-          routes: [...new Set((a.informedEntity || []).map((ie) => ie.routeId || ie.trip?.routeId || '').filter(Boolean))],
-          stops: [...new Set((a.informedEntity || []).map((ie) => ie.stopId || '').filter(Boolean))],
+          routes: [
+            ...new Set(
+              (a.informedEntity || [])
+                .map((ie) => ie.routeId || ie.trip?.routeId || '')
+                .filter(Boolean)
+            ),
+          ],
+          stops: [
+            ...new Set(
+              (a.informedEntity || []).map((ie) => ie.stopId || '').filter(Boolean)
+            ),
+          ],
           activePeriods: (a.activePeriod || []).map((p) => ({
             start: p.start ? Number(p.start) : null,
             end: p.end ? Number(p.end) : null,
@@ -658,6 +760,8 @@ async function pollAlerts() {
   }
 }
 
+// ── upcoming-stops logic ──────────────────────────────────────────────────────
+
 function staticStops(tripId, fromSeq = 0) {
   return getStopTimesForTrip(tripId)
     .filter((s) => s.seq >= fromSeq)
@@ -682,6 +786,7 @@ function upcomingStopsFor(v) {
   const seq = v.stopSeq || 0;
   const td = store.trips[v.tripId];
   const now = Date.now();
+
   const annotateWindow = (stops) => {
     if (!stops.length) return stops;
 
@@ -722,7 +827,6 @@ function upcomingStopsFor(v) {
       else if (currentIdx >= 0 && absoluteIdx === currentIdx) timelineStatus = 'current';
       else if (nextIdx >= 0 && absoluteIdx === nextIdx) timelineStatus = 'next';
       else if (nextIdx >= 0 && absoluteIdx < nextIdx) timelineStatus = 'passed';
-
       return {
         ...s,
         timelineStatus,
@@ -762,16 +866,22 @@ function upcomingStopsFor(v) {
   return annotateWindow(stops);
 }
 
+// ── daily reload scheduler ────────────────────────────────────────────────────
+
 function scheduleDailyStaticReload() {
   const now = new Date();
-  const adelaideNow = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Adelaide' }));
+  const adelaideNow = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Australia/Adelaide' })
+  );
   const nextRun = new Date(adelaideNow);
   nextRun.setHours(1, 15, 0, 0);
 
   if (adelaideNow >= nextRun) nextRun.setDate(nextRun.getDate() + 1);
 
   const delay = nextRun.getTime() - adelaideNow.getTime();
-  console.log(`[GTFS] Next local static reload at ${nextRun.toString()} Adelaide time`);
+  console.log(
+    `[GTFS] Next local static reload at ${nextRun.toString()} Adelaide time`
+  );
 
   setTimeout(async () => {
     try {
@@ -784,6 +894,8 @@ function scheduleDailyStaticReload() {
     }
   }, delay);
 }
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
 
 app.get('/api/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -803,17 +915,23 @@ app.get('/api/stream', (req, res) => {
   });
 });
 
+// ── API routes ────────────────────────────────────────────────────────────────
+
+// FIX 4: vehicles poll every 15s → safe to cache 10s
 app.get('/api/vehicles', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=10');
   res.json(vehiclesPayload());
 });
 
+// FIX 5: pre-computed upcoming stops served directly from the cache on the vehicle object
 app.get('/api/vehicles/:id', (req, res) => {
   const v = store.vehicles.find((x) => x.vehicleId === req.params.id);
   if (!v) return res.status(404).json({ error: 'not found' });
   const alerts = matchedAlertsForVehicle(v);
+  res.set('Cache-Control', 'public, max-age=10');
   res.json({
     ...serializeVehicleSummary(v),
-    upcomingStops: upcomingStopsFor(v),
+    upcomingStops: v._upcomingStopsCache || upcomingStopsFor(v), // fallback if cache not populated yet
     alerts,
   });
 });
@@ -827,6 +945,7 @@ app.get('/api/trips/:tripId', (req, res) => {
     return res.status(404).json({ error: 'not found' });
   }
 
+  res.set('Cache-Control', 'public, max-age=15');
   return res.json({
     tripId,
     stops: tu ? tu.stopUpdates : st,
@@ -834,16 +953,20 @@ app.get('/api/trips/:tripId', (req, res) => {
   });
 });
 
+// FIX 4: alerts poll every 5min → safe to cache 60s
 app.get('/api/alerts', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60');
   res.json(alertsPayload());
 });
 
+// FIX 4: shapes are static → cache aggressively
 app.get('/api/shape/:shapeId', async (req, res) => {
   try {
     const points = await getShapePoints(req.params.shapeId);
     if (!points) {
       return res.status(404).json({ error: 'not found' });
     }
+    res.set('Cache-Control', 'public, max-age=3600');
     return res.json({ shapeId: req.params.shapeId, points });
   } catch (e) {
     console.error('[Shape]', e.message);
@@ -867,9 +990,11 @@ app.get('/api/stops/search', (req, res) => {
     }
   }
 
+  res.set('Cache-Control', 'public, max-age=30');
   return res.json({ stops: results });
 });
 
+// FIX 6: bbox pre-filter + module-level haversine
 app.get('/api/stops/nearby', (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -877,25 +1002,21 @@ app.get('/api/stops/nearby', (req, res) => {
 
   if (Number.isNaN(lat) || Number.isNaN(lon)) return res.json({ stops: [] });
 
-  function haversine(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const p1 = (lat1 * Math.PI) / 180;
-    const p2 = (lat2 * Math.PI) / 180;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
+  // Degrees of latitude / longitude that correspond to `radius` metres
+  const latDelta = radius / 111000;
+  const lonDelta = radius / (111000 * Math.cos((lat * Math.PI) / 180));
 
   const results = store.stopList
-    .map((stop) => ({
-      ...stop,
-      dist: haversine(lat, lon, stop.lat, stop.lon),
-    }))
+    .filter(
+      (s) =>
+        Math.abs(s.lat - lat) <= latDelta && Math.abs(s.lon - lon) <= lonDelta
+    )
+    .map((s) => ({ ...s, dist: haversine(lat, lon, s.lat, s.lon) }))
     .filter((s) => s.dist <= radius)
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 30);
 
+  res.set('Cache-Control', 'public, max-age=30');
   return res.json({ stops: results });
 });
 
@@ -913,7 +1034,9 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
     let stopUpdateLookup = tripUpdateLookupCache.get(tripId);
     if (stopUpdateLookup === undefined) {
       stopUpdateLookup = tu
-        ? buildStopTimeLookup(tu.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s })))
+        ? buildStopTimeLookup(
+            tu.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s }))
+          )
         : null;
       tripUpdateLookupCache.set(tripId, stopUpdateLookup);
     }
@@ -949,6 +1072,7 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
 
   departures.sort((a, b) => (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
 
+  res.set('Cache-Control', 'public, max-age=15');
   return res.json({
     stopId,
     stopName: store.stops[stopId]?.name || stopId,
@@ -956,6 +1080,7 @@ app.get('/api/stops/:stopId/departures', (req, res) => {
   });
 });
 
+// FIX 7: use stopTripIndex inverted lookup instead of scanning all trips
 app.get('/api/plan', (req, res) => {
   const fromStopId = String(req.query.fromStopId || '').trim();
   const toStopId = String(req.query.toStopId || '').trim();
@@ -977,12 +1102,18 @@ app.get('/api/plan', (req, res) => {
   const now = Date.now();
   const options = [];
 
-  const markerFrom = `|${fromStopId}|`;
-  const markerTo = `|${toStopId}|`;
+  // Build candidate trip IDs — only trips that serve BOTH stops
+  const fromTripIds = new Set(
+    (store.stopTripIndex[fromStopId] || []).map((e) => e.tripId)
+  );
+  const toTripIds = new Set(
+    (store.stopTripIndex[toStopId] || []).map((e) => e.tripId)
+  );
+  const candidateTripIds = [...fromTripIds].filter((id) => toTripIds.has(id));
 
-  Object.entries(store.trips_map || {}).forEach(([tripId, trip]) => {
-    const compact = store.stop_times_compact[tripId];
-    if (!compact || !compact.includes(markerFrom) || !compact.includes(markerTo)) return;
+  candidateTripIds.forEach((tripId) => {
+    const trip = store.trips_map[tripId];
+    if (!trip) return;
 
     const stops = getStopTimesForTrip(tripId);
     if (!stops.length) return;
@@ -995,14 +1126,26 @@ app.get('/api/plan', (req, res) => {
     const toStop = stops[toIdx];
     const route = store.routes[trip.routeId] || {};
     const tripUpdate = store.trips[tripId];
-    const tripLookup = tripUpdate ? buildStopTimeLookup(tripUpdate.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s }))) : null;
-    const fromRt = tripLookup ? stopTimeMatch(tripLookup, fromStop.seq, fromStopId) : null;
-    const toRt = tripLookup ? stopTimeMatch(tripLookup, toStop.seq, toStopId) : null;
+    const tripLookup = tripUpdate
+      ? buildStopTimeLookup(
+          tripUpdate.stopUpdates.map((s) => ({ seq: s.sequence, stopId: s.stopId, ...s }))
+        )
+      : null;
+    const fromRt = tripLookup
+      ? stopTimeMatch(tripLookup, fromStop.seq, fromStopId)
+      : null;
+    const toRt = tripLookup
+      ? stopTimeMatch(tripLookup, toStop.seq, toStopId)
+      : null;
 
     const departureRealtime = fromRt?.arrivalTime || fromRt?.departureTime || null;
     const arrivalRealtime = toRt?.arrivalTime || toRt?.departureTime || null;
-    const departureTs = departureRealtime ? new Date(departureRealtime).getTime() : serviceTimeToMillis(fromStop.t);
-    const arrivalTs = arrivalRealtime ? new Date(arrivalRealtime).getTime() : serviceTimeToMillis(toStop.t);
+    const departureTs = departureRealtime
+      ? new Date(departureRealtime).getTime()
+      : serviceTimeToMillis(fromStop.t);
+    const arrivalTs = arrivalRealtime
+      ? new Date(arrivalRealtime).getTime()
+      : serviceTimeToMillis(toStop.t);
 
     if (departureTs && departureTs < now - 60000) return;
 
@@ -1032,8 +1175,13 @@ app.get('/api/plan', (req, res) => {
     });
   });
 
-  options.sort((a, b) => (a.departureTs || Number.MAX_SAFE_INTEGER) - (b.departureTs || Number.MAX_SAFE_INTEGER));
+  options.sort(
+    (a, b) =>
+      (a.departureTs || Number.MAX_SAFE_INTEGER) -
+      (b.departureTs || Number.MAX_SAFE_INTEGER)
+  );
 
+  res.set('Cache-Control', 'public, max-age=15');
   return res.json({
     fromStopId,
     toStopId,
@@ -1071,6 +1219,8 @@ app.get('/health', (req, res) => {
   });
 });
 
+// ── startup ───────────────────────────────────────────────────────────────────
+
 async function start() {
   console.log('Adelaide Metro Tracker');
 
@@ -1078,9 +1228,15 @@ async function start() {
     console.log(`Server running on port ${PORT}`);
   });
 
+  // FIX 1: static load and realtime polls fire concurrently — polls no longer
+  // blocked waiting for static JSON files to finish loading.
   try {
-    await loadStatic();
-    await Promise.all([pollVehicles(), pollTrips(), pollAlerts()]);
+    await Promise.all([
+      loadStatic(),
+      pollVehicles(),
+      pollTrips(),
+      pollAlerts(),
+    ]);
   } catch (e) {
     console.error('Initial data load failed:', e);
   }

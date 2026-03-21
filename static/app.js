@@ -16,6 +16,7 @@ const S = {
   prevPositions:{},
   prevStopSeq:{},
   stopShowAll:false,
+  stopBoardServices:[],
   stopBoardRequestId:0,
   etaTimer:null,          // setInterval for countdown ticking
   etaTargets:{},          // keyâ†’{el, isoTime} for live ticking
@@ -1865,12 +1866,13 @@ async function renderStopBoard(scroll) {
     const stopBoardView = stopBoardVisibleServices(allServices);
     const { upcoming } = stopBoardView;
     const visible = S.stopShowAll ? allServices : stopBoardView.visible;
+    S.stopBoardServices = visible;
     let rows='';
     visible.forEach((d,i) => {
       const col=vColor(d.routeType,1), bg=vBg(d.routeType,1);
       const occSpan = d.routeType==='tram'&&d.occupancy?`<span title="${d.occupancy.label}" style="margin-left:4px">${d.occupancy.emoji}</span>`:'';
       const timeHtml = etaPillFromDeparture(d, i);
-      rows+=`<div class="dep-row" onclick="selectVehicleFromStop('${d.vehicleId||''}')" style="opacity:${d.vehicleId?1:.65}">
+      rows+=`<div class="dep-row" onclick="openStopBoardService(${i})" style="opacity:${d.vehicleId?1:.65}">
         <div class="dep-bd" style="background:${bg};color:${col}">${(d.routeShort||'').substring(0,6)}</div>
         <div class="dep-body">
           <div class="dep-route">${d.routeLong||d.routeShort||d.routeId}${occSpan}</div>
@@ -1897,6 +1899,7 @@ async function renderStopBoard(scroll) {
 function closeStop() {
   S.stopBoardRequestId++;
   S.selectedStop=null; S.mode='list'; S.stopShowAll=false;
+  S.stopBoardServices = [];
   resetEtaTargets();
   renderSidebar();
 }
@@ -1912,6 +1915,58 @@ function selectVehicleFromStop(id) {
   S.mode='list'; S.selectedStop=null; S.stopShowAll=false;
   if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
   selectVehicle(id);
+}
+
+function openStopBoardService(index) {
+  const dep = S.stopBoardServices?.[index];
+  if (!dep) return;
+  if (dep.vehicleId) {
+    selectVehicleFromStop(dep.vehicleId);
+    return;
+  }
+  openScheduledTripDetail(dep);
+}
+
+function openScheduledTripDetail(dep) {
+  if (!dep?.tripId) return;
+  S.selectedId = null;
+  S.selectedStop = null;
+  S.mode = 'list';
+  S.followMode = false;
+  if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer = null; }
+  if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer = null; }
+  document.getElementById('mc-follow').classList.remove('on');
+  const scheduledVehicle = {
+    vehicleId: '',
+    label: '',
+    tripId: dep.tripId,
+    routeId: dep.routeId || '',
+    routeShort: dep.routeShort || dep.routeId || '',
+    routeLong: dep.routeLong || '',
+    routeType: dep.routeType || 'bus',
+    headsign: dep.headsign || '',
+    shapeId: '',
+    directionId: null,
+    lat: null,
+    lon: null,
+    bearing: 0,
+    speed: 0,
+    status: 'SCHEDULED',
+    stopSeq: 0,
+    timestamp: 0,
+    occupancy: dep.occupancy || null,
+    upcomingStops: [],
+    alerts: [],
+    alertCount: 0,
+    scheduledOnly: true,
+  };
+  document.getElementById('dp-title').textContent=`${scheduledVehicle.routeShort||'Trip'} — ${scheduledVehicle.headsign||'Scheduled service'}`;
+  document.getElementById('detail').classList.add('open');
+  updateDetailActionButtons();
+  syncControlState();
+  mobileOpenDetail();
+  renderDetailContent(scheduledVehicle);
+  loadDetailData(scheduledVehicle);
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
