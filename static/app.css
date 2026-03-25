@@ -151,6 +151,7 @@ body.theme-night .maplibregl-ctrl-attrib,body.theme-night .maplibregl-ctrl-attri
 .vg-hdr{position:sticky;top:0;z-index:5;padding:10px 14px 8px;background:var(--surface);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:6px}
 .vg-pill{padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;font-family:var(--mono)}
 .vcard{display:flex;align-items:center;gap:10px;margin:8px 10px 0;padding:11px 12px;border:1px solid var(--line);border-radius:18px;background:var(--surface2);cursor:pointer;transition:background .25s,transform .15s,box-shadow .2s,border-color .25s,filter .25s;position:relative;box-shadow:0 8px 20px rgba(15,23,42,.03)}
+.vcard,.dep-row,.nearby-row,.dd-item,.vc-btn,.detail-action-btn,.stop-back,.filter-btn,.planner-route,.planner-suggestion{touch-action:manipulation}
 .vcard::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.38), rgba(255,255,255,0));}
 .vcard.card-updated{border-color:rgba(16,185,129,.28);box-shadow:0 12px 26px rgba(16,185,129,.10),0 8px 20px rgba(15,23,42,.03);filter:saturate(1.03)}
 .vcard.card-updated::after{animation:cardSweep .55s ease;}

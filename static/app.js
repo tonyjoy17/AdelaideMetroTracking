@@ -51,6 +51,16 @@ let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
 let mapRenderFrame = null;
+let suppressGhostClickUntil = 0;
+
+function noteTouchActivation() {
+  suppressGhostClickUntil = Date.now() + 700;
+}
+
+function shouldSuppressGhostClick(target) {
+  if (!isMobile() || Date.now() > suppressGhostClickUntil) return false;
+  return !!target?.closest?.('.vcard, .dep-row, .nearby-row, .dd-item, .vc-btn, .detail-action-btn, .stop-back, .filter-btn, .planner-route, .planner-suggestion, .tab-btn, .drawer-tab-btn');
+}
 
 function moveLatLonByMeters(lat, lon, bearingDeg, metres) {
   const distance = Math.max(0, metres);
@@ -1647,7 +1657,7 @@ function renderVehicleGroupCards(scroll, groups, extraHtml='') {
       const occ = v.routeType==='tram'&&v.occupancy ? `<div class="vc-occ">${v.occupancy.emoji} <span>${v.occupancy.label}</span></div>` : '';
       const toward = vehicleToward(v);
       const nextStop = nextStopForVehicle(v);
-      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}')" ontouchend="event.preventDefault(); event.stopPropagation(); selectVehicle('${v.vehicleId}')" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
+      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}', event)" ontouchend="noteTouchActivation(); event.preventDefault(); event.stopPropagation(); selectVehicle('${v.vehicleId}', event)" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
         <div class="vc-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
         <div class="vc-body">
           <div class="vc-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
@@ -1895,7 +1905,7 @@ async function renderStopBoard(scroll) {
       const col=vColor(d.routeType,1), bg=vBg(d.routeType,1);
       const occSpan = d.routeType==='tram'&&d.occupancy?`<span title="${d.occupancy.label}" style="margin-left:4px">${d.occupancy.emoji}</span>`:'';
       const timeHtml = etaPillFromDeparture(d, i);
-      rows+=`<div class="dep-row" onclick="openStopBoardService(${i}, event)" ontouchend="event.preventDefault(); event.stopPropagation(); openStopBoardService(${i}, event)" style="opacity:${d.vehicleId?1:.65}">
+      rows+=`<div class="dep-row" onclick="openStopBoardService(${i}, event)" ontouchend="noteTouchActivation(); event.preventDefault(); event.stopPropagation(); openStopBoardService(${i}, event)" style="opacity:${d.vehicleId?1:.65}">
         <div class="dep-bd" style="background:${bg};color:${col}">${(d.routeShort||'').substring(0,6)}</div>
         <div class="dep-body">
           <div class="dep-route">${d.routeLong||d.routeShort||d.routeId}${occSpan}</div>
@@ -1941,6 +1951,7 @@ function selectVehicleFromStop(id) {
 }
 
 function openStopBoardService(index, event) {
+  if (event?.type === 'click' && shouldSuppressGhostClick(event.target)) return;
   if (event) {
     event.preventDefault?.();
     event.stopPropagation?.();
@@ -1999,7 +2010,8 @@ function openScheduledTripDetail(dep) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // VEHICLE SELECTION
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-function selectVehicle(id) {
+function selectVehicle(id, event) {
+  if (event?.type === 'click' && shouldSuppressGhostClick(event.target)) return;
   S.selectedId=id; S.selectedStop=null;
   S.mode='list';
   // Reset stop tracking so first poll doesn't trigger a spurious re-render
@@ -2318,6 +2330,11 @@ document.getElementById('search-clear').addEventListener('click', () => {
   document.getElementById('search-drop').classList.remove('show');
   flushFrozenLiveUiUpdates();
 });
+document.addEventListener('click', e => {
+  if (!shouldSuppressGhostClick(e.target)) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 document.addEventListener('click', e => {
   if (!document.getElementById('search-wrap').contains(e.target)) {
     document.getElementById('search-drop').classList.remove('show');
