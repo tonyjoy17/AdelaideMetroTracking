@@ -1624,7 +1624,7 @@ function renderVehicleGroupCards(scroll, groups, extraHtml='') {
       const occ = v.routeType==='tram'&&v.occupancy ? `<div class="vc-occ">${v.occupancy.emoji} <span>${v.occupancy.label}</span></div>` : '';
       const toward = vehicleToward(v);
       const nextStop = nextStopForVehicle(v);
-      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}')" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
+      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}')" ontouchend="event.preventDefault(); event.stopPropagation(); selectVehicle('${v.vehicleId}')" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
         <div class="vc-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
         <div class="vc-body">
           <div class="vc-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
@@ -1872,7 +1872,7 @@ async function renderStopBoard(scroll) {
       const col=vColor(d.routeType,1), bg=vBg(d.routeType,1);
       const occSpan = d.routeType==='tram'&&d.occupancy?`<span title="${d.occupancy.label}" style="margin-left:4px">${d.occupancy.emoji}</span>`:'';
       const timeHtml = etaPillFromDeparture(d, i);
-      rows+=`<div class="dep-row" onclick="openStopBoardService(${i})" style="opacity:${d.vehicleId?1:.65}">
+      rows+=`<div class="dep-row" onclick="openStopBoardService(${i}, event)" ontouchend="event.preventDefault(); event.stopPropagation(); openStopBoardService(${i}, event)" style="opacity:${d.vehicleId?1:.65}">
         <div class="dep-bd" style="background:${bg};color:${col}">${(d.routeShort||'').substring(0,6)}</div>
         <div class="dep-body">
           <div class="dep-route">${d.routeLong||d.routeShort||d.routeId}${occSpan}</div>
@@ -1917,7 +1917,11 @@ function selectVehicleFromStop(id) {
   selectVehicle(id);
 }
 
-function openStopBoardService(index) {
+function openStopBoardService(index, event) {
+  if (event) {
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  }
   const dep = S.stopBoardServices?.[index];
   if (!dep) return;
   if (dep.vehicleId) {

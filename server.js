@@ -117,6 +117,12 @@ function clearRuntimeCaches() {
   store.shapesById = null;
 }
 
+function readOccupancyStatus(vehicle) {
+  return Object.prototype.hasOwnProperty.call(vehicle || {}, 'occupancyStatus')
+    ? vehicle.occupancyStatus
+    : null;
+}
+
 function matchedAlertsForVehicle(vehicle) {
   const matched = new Map();
   const routeKeys = [vehicle?.routeId, vehicle?.routeShort].filter(Boolean);
@@ -574,7 +580,7 @@ async function pollVehicles() {
         .filter((e) => e.vehicle)
         .forEach((e) => {
           const id = String(e.vehicle.vehicle?.id || e.id || '');
-          const occ = e.vehicle.occupancyStatus;
+          const occ = readOccupancyStatus(e.vehicle);
           if (occ !== undefined && occ !== null) occupancyMap[id] = occ;
         });
     }
@@ -592,7 +598,7 @@ async function pollVehicles() {
         const rid = tm.routeId || routeId;
         const rm = store.routes[rid] || {};
         const vid = String(v.vehicle?.id || e.id || '');
-        const occ = occupancyMap[vid] ?? v.occupancyStatus ?? null;
+        const occ = occupancyMap[vid] ?? readOccupancyStatus(v);
 
         return {
           vehicleId: vid,
