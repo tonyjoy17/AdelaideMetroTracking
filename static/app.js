@@ -1657,7 +1657,7 @@ function renderVehicleGroupCards(scroll, groups, extraHtml='') {
       const occ = v.routeType==='tram'&&v.occupancy ? `<div class="vc-occ">${v.occupancy.emoji} <span>${v.occupancy.label}</span></div>` : '';
       const toward = vehicleToward(v);
       const nextStop = nextStopForVehicle(v);
-      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" onclick="selectVehicle('${v.vehicleId}', event)" ontouchend="noteTouchActivation(); event.preventDefault(); event.stopPropagation(); selectVehicle('${v.vehicleId}', event)" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
+      html += `<div class="vcard${sel?' sel':''}" data-t="${v.routeType}" data-vehicle-id="${v.vehicleId}" style="animation:fadeUp .15s both;animation-delay:${i*.012}s">
         <div class="vc-bd" style="background:${bg};color:${col}">${(v.routeShort||'').substring(0,6)}</div>
         <div class="vc-body">
           <div class="vc-name">${v.routeLong||v.routeShort||v.vehicleId}</div>
@@ -1905,7 +1905,7 @@ async function renderStopBoard(scroll) {
       const col=vColor(d.routeType,1), bg=vBg(d.routeType,1);
       const occSpan = d.routeType==='tram'&&d.occupancy?`<span title="${d.occupancy.label}" style="margin-left:4px">${d.occupancy.emoji}</span>`:'';
       const timeHtml = etaPillFromDeparture(d, i);
-      rows+=`<div class="dep-row" onclick="openStopBoardService(${i}, event)" ontouchend="noteTouchActivation(); event.preventDefault(); event.stopPropagation(); openStopBoardService(${i}, event)" style="opacity:${d.vehicleId?1:.65}">
+      rows+=`<div class="dep-row" data-stop-service-index="${i}" style="opacity:${d.vehicleId?1:.65}">
         <div class="dep-bd" style="background:${bg};color:${col}">${(d.routeShort||'').substring(0,6)}</div>
         <div class="dep-body">
           <div class="dep-route">${d.routeLong||d.routeShort||d.routeId}${occSpan}</div>
@@ -2826,6 +2826,27 @@ function initSidebarScrollGuard() {
   scroll.addEventListener('scroll', markScrolling, { passive: true });
   scroll.addEventListener('touchstart', markScrolling, { passive: true });
   scroll.addEventListener('wheel', markScrolling, { passive: true });
+
+  const handleSidebarActivation = (event) => {
+    const serviceRow = event.target.closest('.dep-row[data-stop-service-index]');
+    if (serviceRow) {
+      noteTouchActivation();
+      event.preventDefault();
+      event.stopPropagation();
+      openStopBoardService(Number(serviceRow.dataset.stopServiceIndex), event);
+      return;
+    }
+    const vehicleCard = event.target.closest('.vcard[data-vehicle-id]');
+    if (vehicleCard) {
+      noteTouchActivation();
+      event.preventDefault();
+      event.stopPropagation();
+      selectVehicle(vehicleCard.dataset.vehicleId, event);
+    }
+  };
+
+  scroll.addEventListener('click', handleSidebarActivation);
+  scroll.addEventListener('touchend', handleSidebarActivation);
 }
 
 map.on('click', (e) => {
