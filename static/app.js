@@ -874,14 +874,30 @@ function toggleTheme() {
 }
 
 const MARKER_VIEWPORT_PAD = 0.35;
-const DETAILED_MARKER_ZOOM = 14;
-const BUS_LABEL_ZOOM = 15.5;
-const ALERT_RING_ZOOM = 14.5;
-const RAIL_LABEL_ZOOM = 14.25;
 let mapInteractionActive = false;
 let currentShapePath = null;
 let currentStopFocus = null;
 let currentUserLocation = null;
+
+function overviewZoomThreshold() {
+  return isMobile() ? 13.0 : 13.35;
+}
+
+function detailedMarkerZoom() {
+  return isMobile() ? 13.7 : 14.2;
+}
+
+function busLabelZoom() {
+  return isMobile() ? 15.05 : 15.8;
+}
+
+function alertRingZoom() {
+  return isMobile() ? 14.15 : 14.75;
+}
+
+function railLabelZoom() {
+  return isMobile() ? 13.95 : 14.45;
+}
 
 const DECK_COLORS = {
   tram: [244, 81, 66],
@@ -924,31 +940,38 @@ function shouldRenderMarker(v, bounds) {
 }
 
 function useBusDot(v) {
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
-  return v.routeType === 'bus' && v.vehicleId !== S.selectedId && zoom < DETAILED_MARKER_ZOOM;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
+  return v.routeType === 'bus' && v.vehicleId !== S.selectedId && zoom < detailedMarkerZoom();
 }
 
 function deckVehicleRadius(v) {
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
-  const compact = zoom < DETAILED_MARKER_ZOOM && v.vehicleId !== S.selectedId;
-  let radius = v.routeType === 'tram' ? 14 : v.routeType === 'train' ? 13 : v.speed > 0.5 ? 11 : 8;
-  if (compact) radius = v.routeType === 'tram' ? 9 : v.routeType === 'train' ? 8 : 5;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
+  const compact = zoom < detailedMarkerZoom() && v.vehicleId !== S.selectedId;
+  const mobile = isMobile();
+  let radius = v.routeType === 'tram'
+    ? (mobile ? 15 : 13)
+    : v.routeType === 'train'
+      ? (mobile ? 14 : 12)
+      : v.speed > 0.5
+        ? (mobile ? 11.5 : 10)
+        : (mobile ? 9 : 7);
+  if (compact) radius = v.routeType === 'tram' ? (mobile ? 10 : 8) : v.routeType === 'train' ? (mobile ? 9 : 7) : (mobile ? 6 : 4.5);
   if (v.vehicleId === S.selectedId) radius += 6;
   return radius;
 }
 
 function deckLabelVisible(v) {
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
   if (v.vehicleId === S.selectedId) return true;
-  if (vehicleAlertCount(v)) return zoom >= ALERT_RING_ZOOM;
-  if (v.routeType === 'tram' || v.routeType === 'train') return zoom >= RAIL_LABEL_ZOOM;
-  return zoom >= BUS_LABEL_ZOOM;
+  if (vehicleAlertCount(v)) return zoom >= alertRingZoom();
+  if (v.routeType === 'tram' || v.routeType === 'train') return zoom >= railLabelZoom();
+  return zoom >= busLabelZoom();
 }
 
 function deckOccupancyVisible(v) {
   if (v.vehicleId === S.selectedId) return true;
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
-  return zoom >= 15;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
+  return zoom >= (isMobile() ? 14.6 : 15.2);
 }
 
 function aggregateOverviewVehicles(vehicles) {
@@ -984,14 +1007,14 @@ function aggregateOverviewVehicles(vehicles) {
 }
 
 function vehicleDeckData() {
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
-  const viewportPad = zoom < OVERVIEW_ZOOM ? 0.12 : MARKER_VIEWPORT_PAD;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
+  const viewportPad = zoom < overviewZoomThreshold() ? 0.12 : MARKER_VIEWPORT_PAD;
   const bounds = map.getBounds ? map.getBounds().pad(viewportPad) : null;
   const visibleVehicles = vehiclesForMapView()
     .filter(hasUsableCoords)
     .filter(v => shouldRenderMarker(v, bounds))
     .sort((a, b) => String(a.vehicleId || '').localeCompare(String(b.vehicleId || '')));
-  const overviewMode = zoom < OVERVIEW_ZOOM;
+  const overviewMode = zoom < overviewZoomThreshold();
   const selectedVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
   const nonSelectedVehicles = visibleVehicles.filter(v => v.vehicleId !== S.selectedId);
   const overviewAggregates = overviewMode ? aggregateOverviewVehicles(nonSelectedVehicles) : [];
@@ -1007,10 +1030,10 @@ function vehicleDeckData() {
 
 function buildDeckLayers() {
   const { overviewMode, markerVehicles, busVehicles, overviewAggregates } = vehicleDeckData();
-  const zoom = map.getZoom ? map.getZoom() : DETAILED_MARKER_ZOOM;
+  const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
   const ringVehicles = markerVehicles.filter((v) => {
     if (v.vehicleId === S.selectedId) return true;
-    return zoom >= ALERT_RING_ZOOM && vehicleAlertCount(v);
+    return zoom >= alertRingZoom() && vehicleAlertCount(v);
   });
 
   const layers = [
