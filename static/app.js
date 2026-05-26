@@ -1,7 +1,7 @@
 'use strict';
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // STATE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 const S = {
   vehicles:[], alerts:[], tab:'all', filterRoute:null,
   selectedId:null, selectedStop:null,
@@ -19,7 +19,7 @@ const S = {
   stopBoardServices:[],
   stopBoardRequestId:0,
   etaTimer:null,          // setInterval for countdown ticking
-  etaTargets:{},          // keyâ†’{el, isoTime} for live ticking
+  etaTargets:{},          // key->{el, isoTime} for live ticking
   favs: (() => { try { return JSON.parse(localStorage.getItem('adl_favs3')||'[]'); } catch { return []; }})(),
 };
 const saveFavs = () => localStorage.setItem('adl_favs3', JSON.stringify(S.favs));
@@ -390,9 +390,9 @@ function shouldRefreshSidebarForVehicleUpdate() {
   return S.mode === 'list' || S.mode === 'favorites';
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // ETA COUNTDOWN ENGINE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // Returns minutes until an ISO datetime (negative = overdue)
 function minsUntil(iso) {
   if (!iso) return null;
@@ -506,9 +506,9 @@ function favoriteVehicles() {
   return favoriteVehiclesCache.result;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // HELPERS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 const DIRS = ['N','NE','E','SE','S','SW','W','NW'];
 const bearDir = b => DIRS[Math.round(((b||0)+360)/45)%8];
 const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Adelaide'}); } catch{ return '—'; }};
@@ -735,9 +735,9 @@ function openVehicleNextStop(vehicleId, ev) {
   focusStopOnMap(stop);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // MAP
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 const ADELAIDE = [-34.928, 138.600];
 const MAP_STYLES = {
   day: {
@@ -1543,7 +1543,7 @@ function closeNearby() {
 
 
 // FILTER + TABS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 function getFiltered() {
   if (filteredVehiclesCache.vehiclesRef === S.vehicles && filteredVehiclesCache.tab === S.tab && filteredVehiclesCache.filterRoute === S.filterRoute) {
     return filteredVehiclesCache.result;
@@ -1581,9 +1581,9 @@ function setTab(t, el) {
   if (isMobile()) mobileShowFilteredList();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // SIDEBAR
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 function updateTabCounts() {
   const ct = {all:S.vehicles.length,tram:0,train:0,bus:0,alerts:0};
   S.vehicles.forEach(v => { if (ct[v.routeType] !== undefined) ct[v.routeType]++; if (vehicleAlertCount(v)) ct.alerts++; });
@@ -2007,9 +2007,9 @@ function openScheduledTripDetail(dep) {
   loadDetailData(scheduledVehicle);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // VEHICLE SELECTION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 function selectVehicle(id, event) {
   if (event?.type === 'click' && shouldSuppressGhostClick(event.target)) return;
   S.selectedId=id; S.selectedStop=null;
@@ -2297,9 +2297,9 @@ function renderStopTimeline(stops, curSeq, type, hasRT, vehicleStatus) {
   renderStopTimelineRows(el, visible, type, hasRT);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // SEARCH
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 let searchTimer=null;
 const searchInputEl = document.getElementById('search-in');
 const searchRowEl = document.querySelector('#search-wrap .search-row');
@@ -2452,9 +2452,9 @@ function filterByRoute(rs) {
   if (isMobile()) mobileShowFilteredList();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // DATA FETCH
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 function renderSidebarForVehicleUpdate() {
   updateTabCounts();
   if (!shouldRefreshSidebarForVehicleUpdate()) {
@@ -2714,12 +2714,12 @@ function startVehicleStream() {
   };
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 // INIT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
+// ---------------------------------------
 // MOBILE DRAWER + SHEET BEHAVIOUR
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ---------------------------------------
 function isMobile() { return window.innerWidth <= 680; }
 
 function mobDrawerOpen() {
