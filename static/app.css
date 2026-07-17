@@ -503,6 +503,16 @@ body.theme-night .af-text{color:#e2e8f0}
     background:rgba(11,21,36,.98) !important;
   }
 }
+
+/* iOS safe mode removes the WebGL canvas from the compositor while the
+   vehicle sheet is expanded. The sheet remains fully usable and the map is
+   restored on close. */
+body.ios-detail-map-paused #map{
+  visibility:hidden;
+}
+body.ios-detail-map-paused{
+  background:var(--bg);
+}
 body.theme-night #topbar,
 body.theme-night #tabbar,
 body.theme-night #sidebar,

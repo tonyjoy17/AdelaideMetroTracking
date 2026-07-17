@@ -61,6 +61,7 @@ let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
 let mapRenderFrame = null;
 let suppressGhostClickUntil = 0;
+let iosDetailMapPaused = false;
 let vehicleSelectionRequestId = 0;
 let vehicleSelectionController = null;
 
@@ -1284,12 +1285,34 @@ function buildDeckLayers() {
 
 function performRenderMapLayers() {
   mapRenderFrame = null;
+  if (iosDetailMapPaused) {
+    deckOverlay.setProps({ layers: [] });
+    return;
+  }
   deckOverlay.setProps({ layers: buildDeckLayers() });
 }
 
 function renderMapLayers() {
+  if (iosDetailMapPaused) return;
   if (mapRenderFrame != null) return;
   mapRenderFrame = requestAnimationFrame(performRenderMapLayers);
+}
+
+function setIOSDetailMapPaused(paused) {
+  if (!IOS_SAFARI_SAFE_MODE || iosDetailMapPaused === paused) return;
+  iosDetailMapPaused = paused;
+  document.body.classList.toggle('ios-detail-map-paused', paused);
+  if (paused) {
+    if (mapRenderFrame != null) cancelAnimationFrame(mapRenderFrame);
+    mapRenderFrame = null;
+    mapCore.stop();
+    deckOverlay.setProps({ layers: [] });
+    return;
+  }
+  requestAnimationFrame(() => {
+    mapCore.resize();
+    renderMapLayers();
+  });
 }
 
 mapCore.on('load', () => {
@@ -1378,6 +1401,7 @@ function focusStopOnMap(stop) {
   if (isMobile()) {
     mobDrawerClose();
     document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+    setIOSDetailMapPaused(false);
   }
 }
 function restoreFullMapFromNearby() {
@@ -1542,6 +1566,7 @@ async function showNearby() {
   }
   S.mode='nearby'; S.selectedStop=null; S.selectedId=null;
   document.getElementById('detail').classList.remove('open');
+  setIOSDetailMapPaused(false);
   document.getElementById('mc-nearby').classList.add('on');
   if (isMobile()) mobDrawerOpen();
   showActionFeedback('Finding nearby stops...');
@@ -1620,6 +1645,7 @@ function setTab(t, el) {
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
   document.getElementById('mc-follow').classList.remove('on');
   document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+  setIOSDetailMapPaused(false);
   renderSidebar(); updateMarkers();
   syncControlState();
   if (isMobile()) mobileShowFilteredList();
@@ -1849,6 +1875,7 @@ function openPlanner() {
   S.selectedId = null;
   S.selectedStop = null;
   document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+  setIOSDetailMapPaused(false);
   renderSidebar();
   syncControlState();
   if (isMobile()) mobDrawerOpen();
@@ -2110,6 +2137,7 @@ function closeDetail() {
   if (S.stopFocusLayer) { S.stopFocusLayer.remove(); S.stopFocusLayer=null; }
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
   document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+  setIOSDetailMapPaused(false);
   updateDetailActionButtons();
   pendingVehicleSidebarRefresh = false;
   renderSidebar(); updateMarkers();
@@ -2483,6 +2511,7 @@ function pickStop(stopObj) {
   S.stopBoardRequestId++;
   S.selectedStop=stopObj; S.mode='stop'; S.selectedId=null; S.stopShowAll=false;
   document.getElementById('detail').classList.remove('open');
+  setIOSDetailMapPaused(false);
   showActionFeedback('Loading stop details...');
   syncControlState();
   renderSidebar();
@@ -2560,6 +2589,7 @@ async function applyVehicleDeltaPayloadNow(data) {
       S.selectedId = null;
       S.followMode = false;
       document.getElementById('detail').classList.remove('open','expanded','follow-compact');
+      setIOSDetailMapPaused(false);
       updateDetailActionButtons();
       syncControlState();
     }
@@ -2816,6 +2846,7 @@ function mobileOpenDetail() {
   detail.classList.toggle('follow-compact', !!S.followMode);
   if (S.followMode) detail.classList.remove('expanded');
   else detail.classList.add('expanded');
+  setIOSDetailMapPaused(true);
   syncControlState();
 }
 
