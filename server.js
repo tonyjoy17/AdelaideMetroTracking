@@ -46,6 +46,16 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+app.get('/robots.txt', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.type('text/plain').sendFile(path.join(__dirname, 'robots.txt'));
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.type('application/xml').sendFile(path.join(__dirname, 'sitemap.xml'));
+});
+
 const V1 = 'https://gtfs.adelaidemetro.com.au/v1/realtime';
 const V2 = 'https://gtfs.adelaidemetro.com.au/v2/realtime';
 const STATIC_DATA_DIR =
