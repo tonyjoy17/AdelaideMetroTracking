@@ -34,9 +34,15 @@ app.use('/static', express.static(path.join(__dirname, 'static'), {
   maxAge: '1h',
   etag: true,
   lastModified: true,
+  setHeaders(res) {
+    if (/[?&]v=/.test(res.req?.originalUrl || '')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
 }));
 
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -71,6 +77,7 @@ const store = {
   stop_times_compact: {},
   stopTripIndex: {},
   shapesById: null,
+  shapeShards: new Map(),
   gtfsVersion: null,
   staticLoaded: false,
   lastUpdated: {
@@ -115,6 +122,7 @@ function clearRuntimeCaches() {
   store.caches.tripStops.clear();
   store.caches.departuresByStop.clear();
   store.shapesById = null;
+  store.shapeShards.clear();
 }
 
 function readOccupancyStatus(vehicle) {
@@ -453,10 +461,30 @@ async function ensureShapesLoaded() {
   }
 }
 
+function shapeShardKey(shapeId) {
+  let hash = 2166136261;
+  for (const char of String(shapeId || '')) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 32).toString(16).padStart(2, '0');
+}
+
 async function getShapePoints(shapeId) {
   if (!shapeId) return null;
-  await ensureShapesLoaded();
-  return store.shapesById[shapeId] || null;
+  const shardKey = shapeShardKey(shapeId);
+  try {
+    let shard = store.shapeShards.get(shardKey);
+    if (!shard) {
+      shard = await readJson(path.join('shape_shards', `${shardKey}.json`));
+      rememberInMap(store.shapeShards, shardKey, shard, 8);
+    }
+    return shard[shapeId] || null;
+  } catch {
+    // Backward-compatible fallback for deployments built before shape shards.
+    await ensureShapesLoaded();
+    return store.shapesById[shapeId] || null;
+  }
 }
 
 async function loadStatic(force = false) {
@@ -925,7 +953,7 @@ app.get('/api/stream', (req, res) => {
 
 // FIX 4: vehicles poll every 15s → safe to cache 10s
 app.get('/api/vehicles', (req, res) => {
-  res.set('Cache-Control', 'public, max-age=10');
+  res.set('Cache-Control', 'public, max-age=5, s-maxage=10, stale-while-revalidate=10');
   res.json(vehiclesPayload());
 });
 
@@ -972,7 +1000,7 @@ app.get('/api/shape/:shapeId', async (req, res) => {
     if (!points) {
       return res.status(404).json({ error: 'not found' });
     }
-    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Cache-Control', 'public, max-age=86400, s-maxage=604800, immutable');
     return res.json({ shapeId: req.params.shapeId, points });
   } catch (e) {
     console.error('[Shape]', e.message);

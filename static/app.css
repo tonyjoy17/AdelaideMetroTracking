@@ -53,7 +53,17 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;out
 input{border:none;background:none;font:inherit;color:inherit;outline:none}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
-.maplibregl-ctrl-attrib{font-size:9px!important}
+.leaflet-control-attribution{font-size:9px!important}
+.leaflet-container{font-family:Inter,sans-serif;background:var(--bg)}
+.vehicle-map-label{
+  margin:0!important;padding:0!important;border:0!important;background:transparent!important;
+  box-shadow:none!important;color:#fff!important;font:800 10px/1 JetBrains Mono,monospace!important;
+  text-shadow:0 1px 2px rgba(15,23,42,.9),0 0 2px rgba(15,23,42,.85);
+  pointer-events:none!important;
+}
+.vehicle-map-label::before{display:none!important}
+.vehicle-map-label.selected{font-size:11px!important}
+.vehicle-map-label.aggregate{font-size:10px!important}
 
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
@@ -137,7 +147,7 @@ body.theme-night .tb-toggle.on{background:#152844;color:#ffd76a;border-color:rgb
 .mc-btn{width:40px;height:40px;border-radius:14px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh1);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink2);transition:all .15s}
 .mc-btn:hover{background:var(--surface3);box-shadow:var(--sh2);transform:translateY(-1px)}
 .mc-btn.on{background:var(--tram);color:white;border-color:var(--tram)}
-body.theme-night .maplibregl-ctrl-attrib,body.theme-night .maplibregl-ctrl-attrib a{color:#9ab0cf!important;background:rgba(15,23,42,.65)}
+body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-attribution a{color:#9ab0cf!important;background:rgba(15,23,42,.65)}
 .map-legend{position:absolute;bottom:152px;right:12px;z-index:40;background:rgba(255,255,255,.65);backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.5);border-radius:16px;box-shadow:var(--sh1);padding:11px 13px;display:flex;flex-direction:column;gap:6px}
 .leg-row{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--ink2);font-weight:500}
 .leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
@@ -504,15 +514,6 @@ body.theme-night .af-text{color:#e2e8f0}
   }
 }
 
-/* iOS safe mode removes the WebGL canvas from the compositor while the
-   vehicle sheet is expanded. The sheet remains fully usable and the map is
-   restored on close. */
-body.ios-detail-map-paused #map{
-  visibility:hidden;
-}
-body.ios-detail-map-paused{
-  background:var(--bg);
-}
 body.theme-night #topbar,
 body.theme-night #tabbar,
 body.theme-night #sidebar,
@@ -598,7 +599,7 @@ body.theme-night .dep-tag{background:rgba(33,71,124,.24);color:#9ec5ff}
 body.theme-night .crowd-bg,
 body.theme-night .stop-conn{background:rgba(121,150,194,.18)}
 body.theme-night .stop-dot{background:rgba(10,19,34,.92)}
-body.theme-night .maplibregl-canvas{background:#07111f}
+body.theme-night .leaflet-container{background:#07111f}
 @media(max-width:680px){
   :root{ --peek:156px; --peek-follow:292px; --expanded:72dvh; --tabbar:58px; }
   body{

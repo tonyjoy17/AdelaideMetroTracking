@@ -68,6 +68,27 @@ function buildShapesMap(raw) {
   return shapes;
 }
 
+const SHAPE_SHARD_COUNT = 32;
+
+function shapeShardKey(shapeId) {
+  let hash = 2166136261;
+  for (const char of String(shapeId || '')) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % SHAPE_SHARD_COUNT).toString(16).padStart(2, '0');
+}
+
+function buildShapeShards(shapes) {
+  const shards = {};
+  Object.entries(shapes).forEach(([shapeId, points]) => {
+    const key = shapeShardKey(shapeId);
+    if (!shards[key]) shards[key] = {};
+    shards[key][shapeId] = points;
+  });
+  return shards;
+}
+
 function routeType(rawType) {
   const n = parseInt(rawType, 10);
   if (n === 0) return 'tram';
@@ -118,6 +139,7 @@ function normalizePreparedData(files, version) {
         stops: Object.keys(stops).length,
         stopTimesTrips: Object.keys(stopTimesCompact).length,
         shapes: Object.keys(shapes).length,
+        shapeShards: SHAPE_SHARD_COUNT,
       },
     },
     routes,
@@ -131,6 +153,9 @@ function normalizePreparedData(files, version) {
 async function writePreparedData(outputDir, data) {
   const tempDir = `${outputDir}.tmp-${Date.now()}`;
   await fsp.mkdir(tempDir, { recursive: true });
+  const shapeShards = buildShapeShards(data.shapes);
+  const shapeShardDir = path.join(tempDir, 'shape_shards');
+  await fsp.mkdir(shapeShardDir, { recursive: true });
 
   await Promise.all([
     fsp.writeFile(path.join(tempDir, 'manifest.json'), JSON.stringify(data.manifest, null, 2)),
@@ -138,8 +163,10 @@ async function writePreparedData(outputDir, data) {
     fsp.writeFile(path.join(tempDir, 'trips.json'), JSON.stringify(data.trips)),
     fsp.writeFile(path.join(tempDir, 'stops.json'), JSON.stringify(data.stops)),
     fsp.writeFile(path.join(tempDir, 'stop_times_compact.json'), JSON.stringify(data.stopTimesCompact)),
-    fsp.writeFile(path.join(tempDir, 'shapes.json'), JSON.stringify(data.shapes)),
   ]);
+  await Promise.all(Object.entries(shapeShards).map(([key, shapes]) =>
+    fsp.writeFile(path.join(shapeShardDir, `${key}.json`), JSON.stringify(shapes))
+  ));
 
   await fsp.rm(outputDir, { recursive: true, force: true });
   await fsp.mkdir(path.dirname(outputDir), { recursive: true });

@@ -4,12 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f2f4fb" id="theme-color-meta">
 <title>Adelaide Metro</title>
 
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
+<link rel="stylesheet" href="/static/leaflet.css?v=1.9.4">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v=leaflet-2">
 </head>
 <body>
 <div id="loading-screen">
@@ -127,8 +128,7 @@
   <button class="tab-btn" data-t="alerts" onclick="setTab('alerts',this)" aria-pressed="false"><span class="tab-icon">⚠️</span><span>Alerts</span><span class="tab-ct" id="tc-alerts">0</span></button>
 </div>
 
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/deck.gl@9.0.12/dist.min.js"></script>
-<script src="/static/app.js" defer></script>
+<script src="/static/leaflet.js?v=1.9.4"></script>
+<script src="/static/app.js?v=leaflet-2" defer></script>
 </body>
 </html>

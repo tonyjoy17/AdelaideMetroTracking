@@ -31,12 +31,7 @@ const SELECTED_DETAIL_REFRESH_MS = 10_000;
 const SHAPE_CACHE_LIMIT = 24;
 const TRIP_CACHE_LIMIT = 80;
 const MAX_RENDERED_SHAPE_POINTS = 900;
-const IOS_SAFARI_SAFE_MODE = (() => {
-  const ua = navigator.userAgent || '';
-  const iOSDevice = /iPad|iPhone|iPod/.test(ua)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  return iOSDevice && /WebKit/i.test(ua);
-})();
+const USE_LEAFLET_MAP = true;
 const VEHICLE_MOVE_ANIM_MS = 1600;
 const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
 const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
@@ -61,7 +56,6 @@ let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
 let mapRenderFrame = null;
 let suppressGhostClickUntil = 0;
-let iosDetailMapPaused = false;
 let vehicleSelectionRequestId = 0;
 let vehicleSelectionController = null;
 
@@ -150,6 +144,15 @@ function animateVehiclePositionsFrame(now = performance.now()) {
 }
 
 function scheduleVehiclePositionAnimation() {
+  if (USE_LEAFLET_MAP) {
+    Object.values(S.prevPositions).forEach((entry) => {
+      if (!entry) return;
+      entry.lat = entry.targetLat;
+      entry.lon = entry.targetLon;
+    });
+    renderMapLayers();
+    return;
+  }
   if (vehicleAnimationFrame != null) return;
   renderMapLayers();
   vehicleAnimationFrame = requestAnimationFrame(animateVehiclePositionsFrame);
@@ -769,81 +772,39 @@ function openVehicleNextStop(vehicleId, ev) {
 // MAP
 // ---------------------------------------
 const ADELAIDE = [-34.928, 138.600];
-const MAP_STYLES = {
+const MAP_TILES = {
   day: {
-    version: 8,
-    sources: {
-      osm: {
-        type: 'raster',
-        tiles: [
-          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        ],
-        tileSize: 256,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-      }
-    },
-    layers: [{ id:'osm', type:'raster', source:'osm' }]
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
   },
   night: {
-    version: 8,
-    sources: {
-      carto: {
-        type: 'raster',
-        tiles: [
-          'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-        ],
-        tileSize: 256,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-      }
-    },
-    layers: [{ id:'carto', type:'raster', source:'carto' }]
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    options: { maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap contributors &copy; CARTO' }
   }
 };
-const mapCore = new maplibregl.Map({
-  container: 'map',
-  style: MAP_STYLES[S.theme] || MAP_STYLES.day,
-  center: [ADELAIDE[1], ADELAIDE[0]],
-  zoom: 12,
-  attributionControl: true,
-  pixelRatio: IOS_SAFARI_SAFE_MODE ? 1 : Math.min(window.devicePixelRatio || 1, 2),
-  maxCanvasSize: IOS_SAFARI_SAFE_MODE ? [2048, 2048] : [4096, 4096],
-  maxTileCacheSize: IOS_SAFARI_SAFE_MODE ? 20 : null,
-  reduceMotion: IOS_SAFARI_SAFE_MODE
+const leafletCanvas = L.canvas({ padding:0.35, tolerance:8 });
+const mapCore = L.map('map', {
+  center:ADELAIDE,
+  zoom:12,
+  preferCanvas:true,
+  renderer:leafletCanvas,
+  zoomControl:false,
+  attributionControl:true
 });
-mapCore.dragRotate.disable();
-mapCore.touchZoomRotate.disableRotation();
-const deckOverlay = new deck.MapboxOverlay({ interleaved: true, layers: [] });
-mapCore.addControl(deckOverlay);
+let baseTileLayer = null;
 
-function makeBoundsAdapter(sw, ne) {
-  return {
-    sw,
-    ne,
-    pad(amount = 0) {
-      const latPad = (this.ne.lat - this.sw.lat) * amount;
-      const lonPad = (this.ne.lon - this.sw.lon) * amount;
-      return makeBoundsAdapter(
-        { lat: this.sw.lat - latPad, lon: this.sw.lon - lonPad },
-        { lat: this.ne.lat + latPad, lon: this.ne.lon + lonPad }
-      );
-    },
-    contains([lat, lon]) {
-      return lat >= this.sw.lat && lat <= this.ne.lat && lon >= this.sw.lon && lon <= this.ne.lon;
-    }
-  };
+function setBaseTileLayer(theme) {
+  if (baseTileLayer) mapCore.removeLayer(baseTileLayer);
+  const config = MAP_TILES[theme] || MAP_TILES.day;
+  baseTileLayer = L.tileLayer(config.url, config.options).addTo(mapCore);
 }
+setBaseTileLayer(S.theme);
 
 function wrapMapEvent(eventName, handler) {
-  mapCore.on(eventName, (ev) => {
-    handler({
-      ...ev,
-      containerPoint: ev?.point ? { x: ev.point.x, y: ev.point.y } : null,
-    });
-  });
+  mapCore.on(eventName, (ev) => handler({
+    ...ev,
+    containerPoint: ev?.containerPoint ? { x:ev.containerPoint.x, y:ev.containerPoint.y } : null
+  }));
 }
 
 const map = {
@@ -851,55 +812,36 @@ const map = {
     String(events).split(/\s+/).filter(Boolean).forEach((eventName) => wrapMapEvent(eventName, handler));
   },
   setView([lat, lon], zoom, options = {}) {
-    mapCore.easeTo({
-      center: [lon, lat],
-      zoom,
-      duration: options.animate === false ? 0 : Math.round((options.duration || 0.45) * 1000),
-      essential: true
-    });
+    mapCore.setView([lat,lon], zoom, { animate:options.animate !== false, duration:options.duration || 0.45 });
   },
   panTo([lat, lon], options = {}) {
-    mapCore.easeTo({
-      center: [lon, lat],
-      duration: options.animate === false ? 0 : Math.round((options.duration || 0.45) * 1000),
-      essential: true
-    });
+    mapCore.panTo([lat,lon], { animate:options.animate !== false, duration:options.duration || 0.45 });
   },
   fitBounds(bounds, options = {}) {
-    mapCore.fitBounds([[bounds[0][1], bounds[0][0]], [bounds[1][1], bounds[1][0]]], {
-      padding: options.padding || 40,
-      duration: 500,
-      essential: true
-    });
+    mapCore.fitBounds(bounds, { padding:options.padding || [40,40], animate:true, duration:0.5 });
   },
   getZoom() {
     return mapCore.getZoom();
   },
   getBounds() {
-    const bounds = mapCore.getBounds();
-    return makeBoundsAdapter(
-      { lat: bounds.getSouth(), lon: bounds.getWest() },
-      { lat: bounds.getNorth(), lon: bounds.getEast() }
-    );
+    return mapCore.getBounds();
   },
   getSize() {
-    const canvas = mapCore.getCanvas();
-    return { x: canvas.clientWidth, y: canvas.clientHeight };
+    return mapCore.getSize();
   },
   getCenter() {
     const center = mapCore.getCenter();
     return { lat: center.lat, lng: center.lng };
   },
   project([lat, lon], zoom = mapCore.getZoom()) {
-    return mapCore.project([lon, lat], zoom);
+    return mapCore.project([lat,lon], zoom);
   },
   unproject(point, zoom = mapCore.getZoom()) {
     const ll = mapCore.unproject(point, zoom);
     return [ll.lat, ll.lng];
   },
   latLngToContainerPoint([lat, lon]) {
-    const point = mapCore.project([lon, lat]);
-    return { x: point.x, y: point.y };
+    return mapCore.latLngToContainerPoint([lat,lon]);
   }
 };
 
@@ -907,10 +849,9 @@ function applyTheme(theme) {
   S.theme = theme === 'night' ? 'night' : 'day';
   document.body.classList.toggle('theme-night', S.theme === 'night');
   document.getElementById('theme-color-meta').setAttribute('content', S.theme === 'night' ? '#07111f' : '#f2f4fb');
-  mapCore.setStyle(MAP_STYLES[S.theme]);
+  setBaseTileLayer(S.theme);
   saveTheme();
   syncControlState();
-  mapCore.once('styledata', () => renderMapLayers());
   renderMapLayers();
 }
 function toggleTheme() {
@@ -1058,12 +999,6 @@ function vehicleDeckData() {
     .filter(hasUsableCoords)
     .filter(v => shouldRenderMarker(v, bounds))
     .sort((a, b) => String(a.vehicleId || '').localeCompare(String(b.vehicleId || '')));
-  // iOS Safari is prone to WebGL context loss when the expanded detail sheet
-  // and several hundred deck.gl objects are composited together. While a
-  // vehicle is selected, retain only that marker beneath the sheet.
-  if (IOS_SAFARI_SAFE_MODE && S.selectedId) {
-    visibleVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
-  }
   const overviewMode = zoom < overviewZoomThreshold();
   const selectedVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
   const nonSelectedVehicles = visibleVehicles.filter(v => v.vehicleId !== S.selectedId);
@@ -1283,41 +1218,126 @@ function buildDeckLayers() {
   return layers;
 }
 
+const leafletVehicleLayers = L.layerGroup().addTo(mapCore);
+const leafletOverlayLayers = L.layerGroup().addTo(mapCore);
+const leafletMarkerCache = new Map();
+
+function leafletColor(rgb, alpha = 1) {
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+}
+
+function addLeafletVehicleMarker(v, compact = false) {
+  const cacheKey = `vehicle:${v.vehicleId}`;
+  const displayed = displayedVehiclePosition(v);
+  const selected = v.vehicleId === S.selectedId;
+  const color = leafletColor(deckVehicleColor(v));
+  const radius = compact ? (v.speed > 0.5 ? 5.5 : 4.5) : deckVehicleRadius(v);
+  let marker = leafletMarkerCache.get(cacheKey);
+  if (!marker) {
+    marker = L.circleMarker([displayed[1], displayed[0]], { renderer:leafletCanvas, bubblingMouseEvents:false });
+    marker._vehicleId = v.vehicleId;
+    marker.on('click', (event) => {
+      if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+      selectVehicle(marker._vehicleId);
+    });
+    marker.addTo(leafletVehicleLayers);
+    leafletMarkerCache.set(cacheKey, marker);
+  }
+  marker.setLatLng([displayed[1],displayed[0]]);
+  marker.setRadius(radius);
+  marker.setStyle({ color:'#fff', weight:selected ? 3 : 2, fillColor:color, fillOpacity:S.followMode && !selected ? 0.25 : 0.96 });
+  const label = !compact && deckLabelVisible(v) ? (v.routeShort || '').substring(0, 6) : '';
+  const labelKey = `${label}|${selected}`;
+  if (marker._labelKey !== labelKey) {
+    if (marker.getTooltip()) marker.unbindTooltip();
+    if (label) marker.bindTooltip(label, {
+      permanent:true,
+      direction:'center',
+      className:`vehicle-map-label${selected ? ' selected' : ''}`,
+      opacity:1
+    });
+    marker._labelKey = labelKey;
+  }
+  return cacheKey;
+}
+
 function performRenderMapLayers() {
   mapRenderFrame = null;
-  if (iosDetailMapPaused) {
-    deckOverlay.setProps({ layers: [] });
-    return;
+  leafletOverlayLayers.clearLayers();
+  const desiredMarkerKeys = new Set();
+
+  const { overviewMode, markerVehicles, busVehicles, overviewAggregates } = vehicleDeckData();
+  if (overviewMode) {
+    overviewAggregates.forEach((item) => {
+      const color = item.routeType === 'tram' ? DECK_COLORS.tram : item.routeType === 'train' ? DECK_COLORS.train : DECK_COLORS.bus;
+      const cacheKey = `aggregate:${item.id}`;
+      desiredMarkerKeys.add(cacheKey);
+      let marker = leafletMarkerCache.get(cacheKey);
+      if (!marker) marker = L.circleMarker([item.lat,item.lon], {
+        renderer:leafletCanvas,
+        radius:Math.min(16, 5 + Math.sqrt(item.count) * 2.6),
+        color:'#fff', weight:2, fillColor:leafletColor(color), fillOpacity:0.9,
+        interactive:false
+      }).addTo(leafletVehicleLayers);
+      leafletMarkerCache.set(cacheKey, marker);
+      marker.setLatLng([item.lat,item.lon]);
+      marker.setRadius(Math.min(16, 5 + Math.sqrt(item.count) * 2.6));
+      marker.setStyle({ color:'#fff', weight:2, fillColor:leafletColor(color), fillOpacity:0.9 });
+      const countLabel = item.count > 1 ? String(item.count) : '';
+      if (marker._labelKey !== countLabel) {
+        if (marker.getTooltip()) marker.unbindTooltip();
+        if (countLabel) marker.bindTooltip(countLabel, { permanent:true, direction:'center', className:'vehicle-map-label aggregate', opacity:1 });
+        marker._labelKey = countLabel;
+      }
+    });
   }
-  deckOverlay.setProps({ layers: buildDeckLayers() });
+  markerVehicles.forEach(v => desiredMarkerKeys.add(addLeafletVehicleMarker(v, false)));
+  busVehicles.forEach(v => desiredMarkerKeys.add(addLeafletVehicleMarker(v, true)));
+  leafletMarkerCache.forEach((marker, key) => {
+    if (desiredMarkerKeys.has(key)) return;
+    leafletVehicleLayers.removeLayer(marker);
+    leafletMarkerCache.delete(key);
+  });
+
+  if (currentShapePath?.path?.length) {
+    L.polyline(currentShapePath.path.map(point => [point[1],point[0]]), {
+      renderer:leafletCanvas,
+      color:leafletColor(currentShapePath.color, 0.72),
+      weight:4,
+      opacity:0.85,
+      interactive:false
+    }).addTo(leafletOverlayLayers);
+  }
+  if (currentStopFocus) {
+    L.circleMarker([currentStopFocus.lat,currentStopFocus.lon], {
+      renderer:leafletCanvas, radius:15, color:leafletColor(DECK_COLORS.stopFocus), weight:3,
+      fillColor:leafletColor(DECK_COLORS.stopFocusFill), fillOpacity:0.25, interactive:false
+    }).addTo(leafletOverlayLayers);
+  }
+  if (currentUserLocation) {
+    L.circle([currentUserLocation.lat,currentUserLocation.lon], {
+      renderer:leafletCanvas, radius:currentUserLocation.acc || 20,
+      color:leafletColor(DECK_COLORS.user), weight:1, fillColor:leafletColor(DECK_COLORS.user), fillOpacity:0.12,
+      interactive:false
+    }).addTo(leafletOverlayLayers);
+    L.circleMarker([currentUserLocation.lat,currentUserLocation.lon], {
+      renderer:leafletCanvas, radius:7, color:'#fff', weight:3,
+      fillColor:leafletColor(DECK_COLORS.user), fillOpacity:1, interactive:false
+    }).addTo(leafletOverlayLayers);
+  }
 }
 
 function renderMapLayers() {
-  if (iosDetailMapPaused) return;
   if (mapRenderFrame != null) return;
   mapRenderFrame = requestAnimationFrame(performRenderMapLayers);
 }
 
-function setIOSDetailMapPaused(paused) {
-  if (!IOS_SAFARI_SAFE_MODE || iosDetailMapPaused === paused) return;
-  iosDetailMapPaused = paused;
-  document.body.classList.toggle('ios-detail-map-paused', paused);
-  if (paused) {
-    if (mapRenderFrame != null) cancelAnimationFrame(mapRenderFrame);
-    mapRenderFrame = null;
-    mapCore.stop();
-    deckOverlay.setProps({ layers: [] });
-    return;
-  }
-  requestAnimationFrame(() => {
-    mapCore.resize();
-    renderMapLayers();
-  });
+function setIOSDetailMapPaused() {
+  // Leaflet's Canvas renderer does not create the WebGL context that required
+  // the former iOS pause workaround.
 }
 
-mapCore.on('load', () => {
-  renderMapLayers();
-});
+mapCore.whenReady(renderMapLayers);
 
 function overlayHandle(type) {
   return {
@@ -1365,11 +1385,6 @@ function updateMarkers() {
 
 function drawShape(shapeId, type) {
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
-  if (IOS_SAFARI_SAFE_MODE) {
-    currentShapePath = null;
-    renderMapLayers();
-    return;
-  }
   const pts = S.shapeCache[shapeId];
   if (!pts?.length) return;
   currentShapePath = {
@@ -1430,13 +1445,8 @@ function focusVehicleForFollow(v, animate = true) {
   const mapSize = map.getSize();
   const topSafe = Math.max(112, window.innerHeight * 0.14);
   const desiredY = Math.max(topSafe, Math.min(detailRect.top - 104, mapSize.y * 0.46));
-  mapCore.easeTo({
-    center: [v.lon, v.lat],
-    zoom,
-    offset: [0, desiredY - (mapSize.y / 2)],
-    duration: animate ? 450 : 0,
-    essential: true
-  });
+  mapCore.setView([v.lat,v.lon], zoom, { animate, duration:animate ? 0.45 : 0 });
+  if (animate) mapCore.panBy([0, (mapSize.y / 2) - desiredY], { animate:true, duration:0.35 });
 }
 
 function toggleFollow() {
@@ -2268,7 +2278,7 @@ async function loadDetailData(v) {
       const kd=document.getElementById('kv-dly');
       if (kd&&d) { kd.textContent=d.label; kd.style.color=d.color; kd.style.fontSize='13px'; }
     }
-    if (v.shapeId && !IOS_SAFARI_SAFE_MODE) {
+    if (v.shapeId) {
       if (!S.shapeCache[v.shapeId]) {
         fetch(`/api/shape/${encodeURIComponent(v.shapeId)}`).then(r => {
           if (!r.ok) throw new Error(`Shape request failed (${r.status})`);
