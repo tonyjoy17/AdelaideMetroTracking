@@ -469,6 +469,40 @@ body.theme-night #loading-screen{
 body.theme-night .af-card{background:rgba(15,23,42,.86);border-color:rgba(148,163,184,.16);box-shadow:0 18px 42px rgba(0,0,0,.34)}
 body.theme-night .af-spinner{border-color:rgba(226,232,240,.16);border-top-color:#7dd3fc}
 body.theme-night .af-text{color:#e2e8f0}
+
+/* Mobile browsers can terminate the WebGL tab when several large blurred
+   surfaces are composited over the live map. Keep mobile panels opaque and
+   on the normal compositor path. */
+@media (max-width:680px), (pointer:coarse) {
+  #topbar,
+  #tabbar,
+  #sidebar,
+  #detail,
+  .map-legend,
+  .mc-btn,
+  .vg-hdr,
+  #action-feedback,
+  .af-card {
+    backdrop-filter:none !important;
+    -webkit-backdrop-filter:none !important;
+  }
+
+  #topbar,
+  #tabbar,
+  #sidebar,
+  #detail,
+  .map-legend {
+    background:rgba(255,255,255,.97) !important;
+  }
+
+  body.theme-night #topbar,
+  body.theme-night #tabbar,
+  body.theme-night #sidebar,
+  body.theme-night #detail,
+  body.theme-night .map-legend {
+    background:rgba(11,21,36,.98) !important;
+  }
+}
 body.theme-night #topbar,
 body.theme-night #tabbar,
 body.theme-night #sidebar,
