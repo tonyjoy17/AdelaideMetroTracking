@@ -31,6 +31,12 @@ const SELECTED_DETAIL_REFRESH_MS = 10_000;
 const SHAPE_CACHE_LIMIT = 24;
 const TRIP_CACHE_LIMIT = 80;
 const MAX_RENDERED_SHAPE_POINTS = 900;
+const IOS_SAFARI_SAFE_MODE = (() => {
+  const ua = navigator.userAgent || '';
+  const iOSDevice = /iPad|iPhone|iPod/.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return iOSDevice && /WebKit/i.test(ua);
+})();
 const VEHICLE_MOVE_ANIM_MS = 1600;
 const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
 const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
@@ -801,7 +807,11 @@ const mapCore = new maplibregl.Map({
   style: MAP_STYLES[S.theme] || MAP_STYLES.day,
   center: [ADELAIDE[1], ADELAIDE[0]],
   zoom: 12,
-  attributionControl: true
+  attributionControl: true,
+  pixelRatio: IOS_SAFARI_SAFE_MODE ? 1 : Math.min(window.devicePixelRatio || 1, 2),
+  maxCanvasSize: IOS_SAFARI_SAFE_MODE ? [2048, 2048] : [4096, 4096],
+  maxTileCacheSize: IOS_SAFARI_SAFE_MODE ? 20 : null,
+  reduceMotion: IOS_SAFARI_SAFE_MODE
 });
 mapCore.dragRotate.disable();
 mapCore.touchZoomRotate.disableRotation();
@@ -1043,10 +1053,16 @@ function vehicleDeckData() {
   const zoom = map.getZoom ? map.getZoom() : detailedMarkerZoom();
   const viewportPad = zoom < overviewZoomThreshold() ? 0.12 : MARKER_VIEWPORT_PAD;
   const bounds = map.getBounds ? map.getBounds().pad(viewportPad) : null;
-  const visibleVehicles = vehiclesForMapView()
+  let visibleVehicles = vehiclesForMapView()
     .filter(hasUsableCoords)
     .filter(v => shouldRenderMarker(v, bounds))
     .sort((a, b) => String(a.vehicleId || '').localeCompare(String(b.vehicleId || '')));
+  // iOS Safari is prone to WebGL context loss when the expanded detail sheet
+  // and several hundred deck.gl objects are composited together. While a
+  // vehicle is selected, retain only that marker beneath the sheet.
+  if (IOS_SAFARI_SAFE_MODE && S.selectedId) {
+    visibleVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
+  }
   const overviewMode = zoom < overviewZoomThreshold();
   const selectedVehicles = visibleVehicles.filter(v => v.vehicleId === S.selectedId);
   const nonSelectedVehicles = visibleVehicles.filter(v => v.vehicleId !== S.selectedId);
@@ -1326,6 +1342,11 @@ function updateMarkers() {
 
 function drawShape(shapeId, type) {
   if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
+  if (IOS_SAFARI_SAFE_MODE) {
+    currentShapePath = null;
+    renderMapLayers();
+    return;
+  }
   const pts = S.shapeCache[shapeId];
   if (!pts?.length) return;
   currentShapePath = {
@@ -2219,7 +2240,7 @@ async function loadDetailData(v) {
       const kd=document.getElementById('kv-dly');
       if (kd&&d) { kd.textContent=d.label; kd.style.color=d.color; kd.style.fontSize='13px'; }
     }
-    if (v.shapeId) {
+    if (v.shapeId && !IOS_SAFARI_SAFE_MODE) {
       if (!S.shapeCache[v.shapeId]) {
         fetch(`/api/shape/${encodeURIComponent(v.shapeId)}`).then(r => {
           if (!r.ok) throw new Error(`Shape request failed (${r.status})`);
