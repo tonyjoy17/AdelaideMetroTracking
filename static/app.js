@@ -28,6 +28,9 @@ const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
 const SELECTED_DETAIL_REFRESH_MS = 10_000;
+const SHAPE_CACHE_LIMIT = 24;
+const TRIP_CACHE_LIMIT = 80;
+const MAX_RENDERED_SHAPE_POINTS = 900;
 const VEHICLE_MOVE_ANIM_MS = 1600;
 const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
 const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
@@ -52,6 +55,26 @@ let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
 let mapRenderFrame = null;
 let suppressGhostClickUntil = 0;
+let vehicleSelectionRequestId = 0;
+let vehicleSelectionController = null;
+
+function setBoundedCache(cache, key, value, limit) {
+  if (Object.prototype.hasOwnProperty.call(cache, key)) delete cache[key];
+  cache[key] = value;
+  const keys = Object.keys(cache);
+  if (keys.length > limit) delete cache[keys[0]];
+  return value;
+}
+
+function simplifyShapePoints(points, maxPoints = MAX_RENDERED_SHAPE_POINTS) {
+  if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
+  const simplified = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i += 1) {
+    simplified.push(points[Math.min(points.length - 1, Math.round(i * step))]);
+  }
+  return simplified;
+}
 
 function noteTouchActivation() {
   suppressGhostClickUntil = Date.now() + 700;
@@ -2028,7 +2051,14 @@ function selectVehicle(id, event) {
   syncControlState();
   mobileOpenDetail();
 
-  fetch(`/api/vehicles/${id}`).then(r=>r.json()).then(data => {
+  const requestId = ++vehicleSelectionRequestId;
+  if (vehicleSelectionController) vehicleSelectionController.abort();
+  vehicleSelectionController = new AbortController();
+  fetch(`/api/vehicles/${encodeURIComponent(id)}`, { signal: vehicleSelectionController.signal }).then(r => {
+    if (!r.ok) throw new Error(`Vehicle request failed (${r.status})`);
+    return r.json();
+  }).then(data => {
+    if (requestId !== vehicleSelectionRequestId || S.selectedId !== id) return;
     if (data && data.vehicleId) {
       // Overwrite local subset with detailed set
       const idx = S.vehicles.findIndex(x=>x.vehicleId === id);
@@ -2039,6 +2069,7 @@ function selectVehicle(id, event) {
     renderDetailContent(v);
     loadDetailData(v);
   }).catch(e => {
+    if (e.name === 'AbortError' || requestId !== vehicleSelectionRequestId || S.selectedId !== id) return;
     document.getElementById('dp-title').textContent=`${v.routeShort||'Vehicle'} — ${v.headsign||'Details'}`;
     renderDetailContent(v);
     loadDetailData(v);
@@ -2048,6 +2079,9 @@ function selectVehicle(id, event) {
 function closeDetail() {
   showActionFeedback('Returning to map...');
   S.selectedId = null;
+  vehicleSelectionRequestId += 1;
+  if (vehicleSelectionController) vehicleSelectionController.abort();
+  vehicleSelectionController = null;
   if (S.followMode) {
     S.followMode = false;
     document.getElementById('mc-follow').classList.remove('on');
@@ -2135,9 +2169,6 @@ function renderDetailContent(v) {
         </div>
       </div>
     </div>
-        </div>
-      </div>
-    </div>
     <div class="kpi-row stops">
       <div class="kpi"><div class="kpi-v" id="kv-spd" style="color:${isMoving?'var(--ok)':'var(--stopped)'}">${isMoving?Math.round(v.speed):'0'}</div><div class="kpi-l">km / h</div></div>
       <div class="kpi"><div class="kpi-v" id="kv-dly" style="font-size:${delayInfo?13:21}px;color:${delayInfo?.color||'var(--ink3)'}">${delayInfo?.label||'—'}</div><div class="kpi-l">Delay</div></div>
@@ -2170,7 +2201,9 @@ async function loadDetailData(v) {
       renderStopTimelineDirect(v.upcomingStops, v.routeType, !!v.upcomingStops[0]?.arrivalTime);
     }
     if (!S.tripCache[v.tripId]) {
-      const r=await fetch(`/api/trips/${v.tripId}`); S.tripCache[v.tripId]=await r.json();
+      const r=await fetch(`/api/trips/${encodeURIComponent(v.tripId)}`);
+      if (!r.ok) throw new Error(`Trip request failed (${r.status})`);
+      setBoundedCache(S.tripCache, v.tripId, await r.json(), TRIP_CACHE_LIMIT);
     }
     const td=S.tripCache[v.tripId];
     const startStop = tripStartStop(td);
@@ -2188,8 +2221,12 @@ async function loadDetailData(v) {
     }
     if (v.shapeId) {
       if (!S.shapeCache[v.shapeId]) {
-        fetch(`/api/shape/${v.shapeId}`).then(r=>r.json()).then(data => {
-          S.shapeCache[v.shapeId]=data.points||[];
+        fetch(`/api/shape/${encodeURIComponent(v.shapeId)}`).then(r => {
+          if (!r.ok) throw new Error(`Shape request failed (${r.status})`);
+          return r.json();
+        }).then(data => {
+          const points = simplifyShapePoints(data.points);
+          setBoundedCache(S.shapeCache, v.shapeId, points, SHAPE_CACHE_LIMIT);
           if (S.selectedId===v.vehicleId) drawShape(v.shapeId,v.routeType);
         }).catch(()=>{});
       } else drawShape(v.shapeId,v.routeType);
