@@ -623,6 +623,7 @@ body.theme-night .stop-dot{background:rgba(10,19,34,.92)}
 body.theme-night .leaflet-container{background:#07111f}
 @media(max-width:680px){
   :root{ --peek:156px; --peek-follow:292px; --expanded:72dvh; --tabbar:58px; }
+  html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body{
     background:
       radial-gradient(circle at top left, rgba(0,137,123,.18), transparent 28%),
@@ -641,7 +642,8 @@ body.theme-night .leaflet-container{background:#07111f}
   #planner-toggle{ display:none; }
   .search-wrap{ min-width:0; flex:1 1 auto; position:static; }
   .search-row{ height:40px; padding:0 13px; min-width:0; width:100%; background:rgba(248,250,255,.98); border-color:rgba(188,201,226,.44); box-shadow:none; }
-  .search-row input{ font-size:12px; min-width:0; width:100%; }
+  .search-row input{ font-size:16px; min-width:0; width:100%; }
+  .planner-input{font-size:16px}
   .search-drop{
     position:fixed;
     top:74px;

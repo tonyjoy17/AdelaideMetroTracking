@@ -2915,6 +2915,18 @@ function initMobileSheets() {
   });
 }
 
+function initPageZoomGuard() {
+  const isMapGesture = (event) => document.getElementById('map')?.contains(event.target);
+  const preventOutsideMap = (event) => {
+    if (!isMapGesture(event)) event.preventDefault();
+  };
+  document.addEventListener('gesturestart', preventOutsideMap, { passive:false });
+  document.addEventListener('gesturechange', preventOutsideMap, { passive:false });
+  document.addEventListener('touchmove', (event) => {
+    if (event.touches.length > 1 && !isMapGesture(event)) event.preventDefault();
+  }, { passive:false });
+}
+
 function initSidebarScrollGuard() {
   const scroll = document.getElementById('sb-scroll');
   if (!scroll) return;
@@ -2992,6 +3004,7 @@ map.on('movestart zoomstart', () => {
 
 async function init() {
   applyTheme(S.theme);
+  initPageZoomGuard();
   const msg=document.getElementById('ld-msg');
   const msgs=['Connecting to server...','Downloading GTFS timetable...','Loading stops & routes...','Almost ready...'];
   let mi=0;
