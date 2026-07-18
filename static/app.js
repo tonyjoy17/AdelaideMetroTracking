@@ -1445,8 +1445,13 @@ function focusVehicleForFollow(v, animate = true) {
   const mapSize = map.getSize();
   const topSafe = Math.max(112, window.innerHeight * 0.14);
   const desiredY = Math.max(topSafe, Math.min(detailRect.top - 104, mapSize.y * 0.46));
-  mapCore.setView([v.lat,v.lon], zoom, { animate, duration:animate ? 0.45 : 0 });
-  if (animate) mapCore.panBy([0, (mapSize.y / 2) - desiredY], { animate:true, duration:0.35 });
+  const vehiclePoint = mapCore.project([v.lat, v.lon], zoom);
+  const centerPoint = L.point(
+    vehiclePoint.x,
+    vehiclePoint.y + ((mapSize.y / 2) - desiredY)
+  );
+  const cameraCenter = mapCore.unproject(centerPoint, zoom);
+  mapCore.setView(cameraCenter, zoom, { animate, duration:animate ? 0.45 : 0 });
 }
 
 function toggleFollow() {
