@@ -2918,6 +2918,9 @@ function initMobileSheets() {
 function initSidebarScrollGuard() {
   const scroll = document.getElementById('sb-scroll');
   if (!scroll) return;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchMoved = false;
   const markScrolling = () => {
     sidebarScrollActive = true;
     if (sidebarScrollTimer) clearTimeout(sidebarScrollTimer);
@@ -2928,13 +2931,33 @@ function initSidebarScrollGuard() {
     }, SIDEBAR_SCROLL_RESUME_MS);
   };
   scroll.addEventListener('scroll', markScrolling, { passive: true });
-  scroll.addEventListener('touchstart', markScrolling, { passive: true });
+  scroll.addEventListener('touchstart', (event) => {
+    const touch = event.touches[0];
+    touchStartX = touch?.clientX || 0;
+    touchStartY = touch?.clientY || 0;
+    touchMoved = false;
+    markScrolling();
+  }, { passive: true });
+  scroll.addEventListener('touchmove', (event) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    if (Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY) > 10) {
+      touchMoved = true;
+    }
+  }, { passive: true });
+  scroll.addEventListener('touchcancel', () => { touchMoved = true; }, { passive: true });
   scroll.addEventListener('wheel', markScrolling, { passive: true });
 
   const handleSidebarActivation = (event) => {
+    if (event.type === 'touchend' && touchMoved) {
+      noteTouchActivation();
+      touchMoved = false;
+      return;
+    }
+    if (event.type === 'click' && shouldSuppressGhostClick(event.target)) return;
     const serviceRow = event.target.closest('.dep-row[data-stop-service-index]');
     if (serviceRow) {
-      noteTouchActivation();
+      if (event.type === 'touchend') noteTouchActivation();
       event.preventDefault();
       event.stopPropagation();
       openStopBoardService(Number(serviceRow.dataset.stopServiceIndex), event);
@@ -2942,11 +2965,12 @@ function initSidebarScrollGuard() {
     }
     const vehicleCard = event.target.closest('.vcard[data-vehicle-id]');
     if (vehicleCard) {
-      noteTouchActivation();
+      if (event.type === 'touchend') noteTouchActivation();
       event.preventDefault();
       event.stopPropagation();
       selectVehicle(vehicleCard.dataset.vehicleId, event);
     }
+    if (event.type === 'touchend') touchMoved = false;
   };
 
   scroll.addEventListener('click', handleSidebarActivation);

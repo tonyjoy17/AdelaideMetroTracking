@@ -572,6 +572,27 @@ body.theme-night .mc-btn{
 }
 body.theme-night .detail-action-btn.on{background:var(--tram);color:#fff;border-color:var(--tram)}
 body.theme-night .detail-action-btn.fav-on{background:rgba(255,200,115,.22);border-color:rgba(255,193,94,.6);color:#fff1c8}
+body.theme-night .d-hero-stop,
+body.theme-night .planner-card,
+body.theme-night .planner-route,
+body.theme-night .planner-input,
+body.theme-night .planner-suggestion,
+body.theme-night .nearby-dot{
+  background:rgba(20,35,58,.96);
+  border-color:rgba(121,150,194,.22);
+  box-shadow:none;
+}
+body.theme-night .d-hero-stop-lbl,
+body.theme-night .gps-lbl,
+body.theme-night .kpi-l,
+body.theme-night .ti-lbl{
+  color:#9fb1cb;
+}
+body.theme-night .d-hero-stop-val{color:#f8fafc}
+body.theme-night .d-hero-stop-val.muted{color:#c2ccda}
+body.theme-night .detail-actions-note{color:#a9b8cc}
+body.theme-night .gps-val,
+body.theme-night .ti-val{color:#f1f5f9}
 body.theme-night .search-row:focus-within{
   background:rgba(17,30,51,.98);
   box-shadow:0 0 0 4px rgba(0,188,212,.12), inset 0 1px 0 rgba(255,255,255,.03);
