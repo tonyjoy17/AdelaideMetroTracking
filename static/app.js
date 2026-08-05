@@ -38,7 +38,9 @@ const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
 const VEHICLE_EXTRAPOLATE_MS = 10000;
 const VEHICLE_EXTRAPOLATE_MAX_METRES = 220;
 const OVERVIEW_ZOOM = 13.2;
-const OVERVIEW_GRID_DEGREES = 0.0065;
+// Keep the city view readable: nearby vehicles remain grouped until users
+// deliberately zoom in for individual services.
+const OVERVIEW_GRID_DEGREES = 0.008;
 const UI_DEBOUNCE_MS = 120;
 const SIDEBAR_SCROLL_RESUME_MS = 15_000;
 let actionFeedbackTimer = null;
@@ -774,23 +776,25 @@ function openVehicleNextStop(vehicleId, ev) {
 const ADELAIDE = [-34.928, 138.600];
 const MAP_TILES = {
   day: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    options: { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    options: { maxZoom:20, subdomains:'abcd', opacity:1, attribution:'&copy; OpenStreetMap contributors &copy; CARTO' }
   },
   night: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    options: { maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap contributors &copy; CARTO' }
+    options: { maxZoom:20, subdomains:'abcd', opacity:0.9, attribution:'&copy; OpenStreetMap contributors &copy; CARTO' }
   }
 };
 const leafletCanvas = L.canvas({ padding:0.35, tolerance:8 });
 const mapCore = L.map('map', {
   center:ADELAIDE,
-  zoom:12,
+  zoom:14,
   preferCanvas:true,
   renderer:leafletCanvas,
   zoomControl:false,
   attributionControl:true
 });
+const mapTone = L.DomUtil.create('div', 'map-tone', mapCore.getContainer());
+mapTone.setAttribute('aria-hidden', 'true');
 let baseTileLayer = null;
 
 function setBaseTileLayer(theme) {
@@ -865,15 +869,15 @@ let currentStopFocus = null;
 let currentUserLocation = null;
 
 function overviewZoomThreshold() {
-  return isMobile() ? 13.0 : 13.35;
+  return isMobile() ? 13.8 : 14.15;
 }
 
 function detailedMarkerZoom() {
-  return isMobile() ? 13.7 : 14.2;
+  return isMobile() ? 14.45 : 14.8;
 }
 
 function busLabelZoom() {
-  return isMobile() ? 15.05 : 15.8;
+  return isMobile() ? 15.8 : 16.25;
 }
 
 function alertRingZoom() {
@@ -881,13 +885,13 @@ function alertRingZoom() {
 }
 
 function railLabelZoom() {
-  return isMobile() ? 13.95 : 14.45;
+  return isMobile() ? 14.7 : 15.15;
 }
 
 const DECK_COLORS = {
-  tram: [244, 81, 66],
-  train: [33, 150, 243],
-  bus: [255, 167, 38],
+  tram: [217, 75, 67],
+  train: [43, 132, 190],
+  bus: [219, 140, 35],
   stopped: [120, 144, 156],
   alert: [239, 68, 68],
   stopFocus: [14, 165, 198],
@@ -3000,6 +3004,20 @@ map.on('moveend zoomend resize', () => {
 });
 map.on('movestart zoomstart', () => {
   mapInteractionActive = true;
+});
+
+// Hundreds of canvas markers do not need to be redrawn for every frame of a
+// zoom animation. Hide the overlay briefly, then restore it at the final zoom.
+mapCore.on('zoomstart', () => {
+  mapCore.getContainer().classList.add('map-zooming');
+  if (mapCore.hasLayer(leafletVehicleLayers)) mapCore.removeLayer(leafletVehicleLayers);
+  if (mapCore.hasLayer(leafletOverlayLayers)) mapCore.removeLayer(leafletOverlayLayers);
+});
+mapCore.on('zoomend', () => {
+  if (!mapCore.hasLayer(leafletVehicleLayers)) mapCore.addLayer(leafletVehicleLayers);
+  if (!mapCore.hasLayer(leafletOverlayLayers)) mapCore.addLayer(leafletOverlayLayers);
+  mapCore.getContainer().classList.remove('map-zooming');
+  renderMapLayers();
 });
 
 async function init() {
