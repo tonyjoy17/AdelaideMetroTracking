@@ -3,9 +3,9 @@
   --glass:rgba(255,255,255,.65);--glass-strong:rgba(255,255,255,.8);
   --ink:#0F172A;--ink2:#334155;--ink3:#64748B;--ink4:#94A3B8;
   --line:rgba(148,163,184,.25);--line2:rgba(100,116,139,.35);
-  --tram:#D94B43;--tram-lt:#FFEBEE;--tram-mid:#E99A96;--tram-glow:rgba(217,75,67,.22);
-  --train:#2B84BE;--train-lt:#E1F5FE;--train-mid:#81C4E8;--train-glow:rgba(43,132,190,.18);
-  --bus:#DB8C23;--bus-lt:#FFF8E1;--bus-mid:#E8AC45;--bus-glow:rgba(219,140,35,.18);
+  --tram:#E53935;--tram-lt:#FFEBEE;--tram-mid:#EF9A9A;--tram-glow:rgba(229,57,53,.25);
+  --train:#0288D1;--train-lt:#E1F5FE;--train-mid:#81D4FA;--train-glow:rgba(2,136,209,.2);
+  --bus:#FF8F00;--bus-lt:#FFF8E1;--bus-mid:#FFC107;--bus-glow:rgba(255,143,0,.2);
   --stopped:#64748B;--stopped-lt:#F1F5F9;
   --ok:#10B981;--ok-lt:#D1FAE5;
   --warn:#F59E0B;--warn-lt:#FEF3C7;
@@ -142,24 +142,15 @@ body.theme-night .tb-toggle.on{background:#152844;color:#ffd76a;border-color:rgb
 .tab-btn.on .tab-ct{background:currentColor;color:white}
 
 /* MAP */
-#map{position:absolute;inset:0;z-index:0;background:#e7ebed}
-body.theme-night #map{background:#07111f}
-.map-tone{position:absolute;inset:0;z-index:250;pointer-events:none;background:rgba(18,30,42,.13)}
-body.theme-night .map-tone{background:rgba(2,8,18,.04)}
-.map-zooming .leaflet-overlay-pane{opacity:0}
-.leaflet-overlay-pane{transition:opacity .1s ease}
+#map{position:absolute;inset:0;z-index:0;filter:saturate(1.05) contrast(1.02)}
 .map-ctrl{position:absolute;top:88px;right:12px;z-index:40;display:flex;flex-direction:column;gap:8px}
-.mc-btn{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.9);border:1px solid rgba(148,163,184,.2);box-shadow:0 6px 18px rgba(15,23,42,.1);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;color:var(--ink2);transition:all .15s}
-.mc-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.mc-btn{width:40px;height:40px;border-radius:14px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh1);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink2);transition:all .15s}
 .mc-btn:hover{background:var(--surface3);box-shadow:var(--sh2);transform:translateY(-1px)}
 .mc-btn.on{background:var(--tram);color:white;border-color:var(--tram)}
-body.theme-night .mc-btn{background:rgba(15,23,42,.88);border-color:rgba(148,163,184,.18)}
 body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-attribution a{color:#9ab0cf!important;background:rgba(15,23,42,.65)}
-.map-legend{position:absolute;bottom:152px;right:12px;z-index:40;background:rgba(255,255,255,.82);backdrop-filter:blur(18px);border:1px solid rgba(148,163,184,.18);border-radius:999px;box-shadow:0 6px 20px rgba(15,23,42,.08);padding:8px 12px;display:flex;align-items:center;gap:12px}
-.legend-title{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding-right:2px}
+.map-legend{position:absolute;bottom:152px;right:12px;z-index:40;background:rgba(255,255,255,.65);backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.5);border-radius:16px;box-shadow:var(--sh1);padding:11px 13px;display:flex;flex-direction:column;gap:6px}
 .leg-row{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--ink2);font-weight:500}
-.leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 2px rgba(255,255,255,.8)}
-body.theme-night .map-legend{background:rgba(15,23,42,.82);border-color:rgba(148,163,184,.18)}
+.leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .user-dot{width:14px;height:14px;border-radius:50%;background:#2196f3;border:3px solid white;box-shadow:0 2px 8px rgba(33,150,243,.5)}
 
 /* SIDEBAR */
@@ -423,9 +414,9 @@ body.theme-night .map-legend{background:rgba(15,23,42,.82);border-color:rgba(148
   .map-legend{
     right:16px;
     bottom:112px;
-    padding:8px 12px;
-    border-radius:999px;
-    gap:12px;
+    padding:10px 12px;
+    border-radius:14px;
+    gap:5px;
     box-shadow:0 10px 28px rgba(15,23,42,.08);
   }
   .leg-row{
