@@ -880,7 +880,7 @@ function overviewZoomThreshold() {
 }
 
 function detailedMarkerZoom() {
-  return isMobile() ? 13.7 : 14.2;
+  return isMobile() ? 14.6 : 14.2;
 }
 
 function busLabelZoom() {
@@ -892,7 +892,7 @@ function alertRingZoom() {
 }
 
 function railLabelZoom() {
-  return isMobile() ? 13.95 : 14.45;
+  return isMobile() ? 14.7 : 14.45;
 }
 
 const DECK_COLORS = {
@@ -945,14 +945,14 @@ function deckVehicleRadius(v) {
   const compact = zoom < detailedMarkerZoom() && v.vehicleId !== S.selectedId;
   const mobile = isMobile();
   let radius = v.routeType === 'tram'
-    ? (mobile ? 15 : 13)
+    ? (mobile ? 11 : 13)
     : v.routeType === 'train'
-      ? (mobile ? 14 : 12)
+      ? (mobile ? 10 : 12)
       : v.speed > 0.5
-        ? (mobile ? 11.5 : 10)
-        : (mobile ? 9 : 7);
-  if (compact) radius = v.routeType === 'tram' ? (mobile ? 10 : 8) : v.routeType === 'train' ? (mobile ? 9 : 7) : (mobile ? 6 : 4.5);
-  if (v.vehicleId === S.selectedId) radius += 6;
+        ? (mobile ? 8.5 : 10)
+        : (mobile ? 7 : 7);
+  if (compact) radius = v.routeType === 'tram' ? (mobile ? 8 : 8) : v.routeType === 'train' ? (mobile ? 7.5 : 7) : (mobile ? 5 : 4.5);
+  if (v.vehicleId === S.selectedId) radius += mobile ? 4 : 6;
   return radius;
 }
 
@@ -1242,7 +1242,9 @@ function addLeafletVehicleMarker(v, compact = false) {
   const displayed = displayedVehiclePosition(v);
   const selected = v.vehicleId === S.selectedId;
   const color = leafletColor(deckVehicleColor(v));
-  const radius = compact ? (v.speed > 0.5 ? 5.5 : 4.5) : deckVehicleRadius(v);
+  const radius = compact
+    ? (isMobile() ? (v.speed > 0.5 ? 5 : 4.2) : (v.speed > 0.5 ? 5.5 : 4.5))
+    : deckVehicleRadius(v);
   let marker = leafletMarkerCache.get(cacheKey);
   if (!marker) {
     marker = L.circleMarker([displayed[1], displayed[0]], { renderer:leafletCanvas, bubblingMouseEvents:false });
@@ -1256,7 +1258,7 @@ function addLeafletVehicleMarker(v, compact = false) {
   }
   marker.setLatLng([displayed[1],displayed[0]]);
   marker.setRadius(radius);
-  marker.setStyle({ color:'#fff', weight:selected ? 3 : 2, fillColor:color, fillOpacity:S.followMode && !selected ? 0.25 : 0.96 });
+  marker.setStyle({ color:'#fff', weight:selected ? 3 : (isMobile() ? 1.5 : 2), fillColor:color, fillOpacity:S.followMode && !selected ? 0.25 : 0.96 });
   const label = !compact && deckLabelVisible(v) ? (v.routeShort || '').substring(0, 6) : '';
   const labelKey = `${label}|${selected}`;
   if (marker._labelKey !== labelKey) {
