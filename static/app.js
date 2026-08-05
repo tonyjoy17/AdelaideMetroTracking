@@ -335,6 +335,9 @@ function isFocusedTransportTab() {
 }
 
 function vehiclesForMapView() {
+  if (S.followMode && S.selectedId) {
+    return S.vehicles.filter(v => v.vehicleId === S.selectedId);
+  }
   if (!isMobile()) return S.vehicles;
   if (isFocusedTransportTab() || S.tab === 'alerts') return getFiltered();
   return S.vehicles;
@@ -2113,7 +2116,7 @@ function selectVehicle(id, event) {
   let v = S.vehicles.find(x => x.vehicleId === id);
   if (!v) return;
   renderSidebar(); updateMarkers();
-  if (hasUsableCoords(v)) map.panTo([v.lat,v.lon], {animate:true, duration:.5});
+  if (hasUsableCoords(v) && !isMobile()) map.panTo([v.lat,v.lon], {animate:true, duration:.5});
 
   // Fetch detailed vehicle payload (with upcomingStops)
   document.getElementById('dp-title').textContent=`Loading...`;
@@ -2121,6 +2124,9 @@ function selectVehicle(id, event) {
   updateDetailActionButtons();
   syncControlState();
   mobileOpenDetail();
+  if (isMobile() && hasUsableCoords(v)) {
+    requestAnimationFrame(() => focusVehicleForFollow(v, true));
+  }
 
   const requestId = ++vehicleSelectionRequestId;
   if (vehicleSelectionController) vehicleSelectionController.abort();
@@ -2833,6 +2839,17 @@ function startVehicleStream() {
 // ---------------------------------------
 function isMobile() { return window.innerWidth <= 680; }
 
+let mobileMapResizeFrame = null;
+function refreshMobileMapSize() {
+  if (!isMobile()) return;
+  if (mobileMapResizeFrame != null) cancelAnimationFrame(mobileMapResizeFrame);
+  mobileMapResizeFrame = requestAnimationFrame(() => {
+    mobileMapResizeFrame = null;
+    mapCore.invalidateSize({ animate:false, pan:false, debounceMoveend:true });
+    renderMapLayers();
+  });
+}
+
 function mobDrawerOpen() {
   if (!isMobile()) return;
   document.getElementById('detail').classList.remove('expanded');
@@ -2840,6 +2857,7 @@ function mobDrawerOpen() {
   document.getElementById('mob-backdrop').classList.add('show');
   document.getElementById('mob-hamburger').classList.add('open');
   syncControlState();
+  refreshMobileMapSize();
   if (pendingVehicleSidebarRefresh && shouldRefreshSidebarForVehicleUpdate()) {
     pendingVehicleSidebarRefresh = false;
     renderSidebar();
@@ -2852,6 +2870,7 @@ function mobDrawerClose() {
   document.getElementById('mob-backdrop').classList.remove('show');
   document.getElementById('mob-hamburger').classList.remove('open');
   syncControlState();
+  refreshMobileMapSize();
 }
 
 function mobDrawerToggle() {
@@ -2871,6 +2890,7 @@ function mobileOpenDetail() {
   else detail.classList.add('expanded');
   setIOSDetailMapPaused(true);
   syncControlState();
+  refreshMobileMapSize();
 }
 
 // Tapping a tab on mobile closes drawer, keeps map visible
@@ -3009,6 +3029,10 @@ map.on('moveend zoomend resize', () => {
 map.on('movestart zoomstart', () => {
   mapInteractionActive = true;
 });
+
+window.addEventListener('resize', refreshMobileMapSize, { passive:true });
+window.addEventListener('orientationchange', () => setTimeout(refreshMobileMapSize, 120), { passive:true });
+window.visualViewport?.addEventListener('resize', refreshMobileMapSize, { passive:true });
 
 async function init() {
   applyTheme(S.theme);

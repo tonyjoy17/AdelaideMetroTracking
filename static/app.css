@@ -626,7 +626,7 @@ body.theme-night .stop-conn{background:rgba(121,150,194,.18)}
 body.theme-night .stop-dot{background:rgba(10,19,34,.92)}
 body.theme-night .leaflet-container{background:#07111f}
 @media(max-width:680px){
-  :root{ --peek:156px; --peek-follow:292px; --expanded:72dvh; --tabbar:58px; }
+  :root{ --peek:156px; --peek-follow:292px; --expanded:64dvh; --tabbar:58px; }
   html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body{
     background:
@@ -689,10 +689,13 @@ body.theme-night .leaflet-container{background:#07111f}
   /* tabbar */
   #tabbar{ position:fixed; bottom:10px; left:10px; right:10px; z-index:200; border-radius:20px; background:rgba(255,255,255,.84); box-shadow:0 16px 34px rgba(15,23,42,.12); }
   /* map fills between bars */
-  #map{ position:fixed; top:0; bottom:0; left:0; right:0; z-index:0; }
+  #map{ position:fixed; inset:0; width:100vw; height:100dvh; max-width:none; z-index:0; }
 
   /* map controls */
   .map-ctrl{ position:fixed; top:78px; right:10px; z-index:50; }
+  .mc-btn{ background:#fff; border-color:#dbe3ec; box-shadow:0 7px 18px rgba(15,23,42,.14); }
+  body.theme-night .mc-btn{ background:#101c2e; border-color:#2b3b52; }
+  .mc-btn.on,body.theme-night .mc-btn.on{ background:var(--tram); color:#fff; border-color:var(--tram); }
   .map-legend{ display:none; }
 
   /* backdrop */
@@ -706,7 +709,7 @@ body.theme-night .leaflet-container{background:#07111f}
   /* sidebar — slide-in drawer from left */
   #sidebar{
     position:fixed;
-    top:76px; bottom:78px;
+    top:76px; bottom:calc(var(--tabbar) + 10px);
     left:10px; right:10px; width:auto; height:auto;
     border-right:none; border-top:none; border-radius:26px;
     background:rgba(255,255,255,.88);
@@ -733,7 +736,7 @@ body.theme-night .leaflet-container{background:#07111f}
     display:flex; align-items:center; justify-content:center;
     font-size:18px; color:var(--ink2); cursor:pointer;
   }
-  .filter-bar{ top:0; }
+  .filter-bar{ position:relative; top:auto; z-index:1; background:rgba(255,255,255,.98); }
   #sidebar.drawer-open ~ #tabbar{ opacity:0; pointer-events:none; transform:translateY(18px); }
 
   /* stats compact */
@@ -741,7 +744,7 @@ body.theme-night .leaflet-container{background:#07111f}
 
   /* detail panel — bottom sheet */
   #detail{
-    position:fixed; bottom:78px; left:10px; right:10px; width:auto;
+    position:fixed; bottom:calc(var(--tabbar) + 10px); left:10px; right:10px; width:auto;
     height:var(--expanded); top:auto;
     --sheet-peek:var(--peek);
     display:none;
