@@ -31,7 +31,6 @@ const SELECTED_DETAIL_REFRESH_MS = 10_000;
 const SHAPE_CACHE_LIMIT = 24;
 const TRIP_CACHE_LIMIT = 80;
 const MAX_RENDERED_SHAPE_POINTS = 900;
-const USE_LEAFLET_MAP = true;
 const VEHICLE_MOVE_ANIM_MS = 1600;
 const VEHICLE_MOVE_MIN_SNAP_METRES = 180;
 const VEHICLE_MOVE_BASE_BUFFER_METRES = 120;
@@ -54,6 +53,7 @@ let favoriteVehiclesCache = { vehiclesRef:null, favKey:null, result:[] };
 let lastSelectedDetailFetchAt = 0;
 let lastSelectedDetailKey = '';
 let vehicleAnimationFrame = null;
+let lastFollowCameraFrameAt = 0;
 let mapRenderFrame = null;
 let suppressGhostClickUntil = 0;
 let vehicleSelectionRequestId = 0;
@@ -125,7 +125,7 @@ function animateVehiclePositionsFrame(now = performance.now()) {
         const projected = moveLatLonByMeters(entry.targetLat, entry.targetLon, entry.bearing, extrapolatedMetres);
         entry.lat = projected.lat;
         entry.lon = projected.lon;
-        hasActiveAnimation = true;
+        if ((now - entry.endAt) < VEHICLE_EXTRAPOLATE_MS) hasActiveAnimation = true;
       }
       return;
     }
@@ -135,6 +135,14 @@ function animateVehiclePositionsFrame(now = performance.now()) {
     entry.lon = entry.fromLon + (entry.targetLon - entry.fromLon) * eased;
     hasActiveAnimation = true;
   });
+  if (S.followMode && S.selectedId && (now - lastFollowCameraFrameAt) >= 33) {
+    const selected = S.vehicles.find(v => v.vehicleId === S.selectedId);
+    const entry = S.prevPositions[S.selectedId];
+    if (selected && entry) {
+      lastFollowCameraFrameAt = now;
+      focusVehicleForFollow({ ...selected, lat:entry.lat, lon:entry.lon }, false);
+    }
+  }
   renderMapLayers();
   if (hasActiveAnimation) {
     vehicleAnimationFrame = requestAnimationFrame(animateVehiclePositionsFrame);
@@ -144,15 +152,6 @@ function animateVehiclePositionsFrame(now = performance.now()) {
 }
 
 function scheduleVehiclePositionAnimation() {
-  if (USE_LEAFLET_MAP) {
-    Object.values(S.prevPositions).forEach((entry) => {
-      if (!entry) return;
-      entry.lat = entry.targetLat;
-      entry.lon = entry.targetLon;
-    });
-    renderMapLayers();
-    return;
-  }
   if (vehicleAnimationFrame != null) return;
   renderMapLayers();
   vehicleAnimationFrame = requestAnimationFrame(animateVehiclePositionsFrame);
@@ -335,7 +334,7 @@ function isFocusedTransportTab() {
 }
 
 function vehiclesForMapView() {
-  if (S.followMode && S.selectedId) {
+  if (S.selectedId) {
     return S.vehicles.filter(v => v.vehicleId === S.selectedId);
   }
   if (!isMobile()) return S.vehicles;
@@ -2117,6 +2116,7 @@ function selectVehicle(id, event) {
   delete S.prevStopSeq[id];
   let v = S.vehicles.find(x => x.vehicleId === id);
   if (!v) return;
+  if (S.shapeLayer) { S.shapeLayer.remove(); S.shapeLayer=null; }
   renderSidebar(); updateMarkers();
   if (hasUsableCoords(v) && !isMobile()) map.panTo([v.lat,v.lon], {animate:true, duration:.5});
 
@@ -2309,7 +2309,7 @@ async function loadDetailData(v) {
           setBoundedCache(S.shapeCache, v.shapeId, points, SHAPE_CACHE_LIMIT);
           if (S.selectedId===v.vehicleId) drawShape(v.shapeId,v.routeType);
         }).catch(()=>{});
-      } else drawShape(v.shapeId,v.routeType);
+      } else if (S.selectedId===v.vehicleId) drawShape(v.shapeId,v.routeType);
     }
   } catch(e) { const sz=document.getElementById('stops-zone'); if(sz) sz.innerHTML='<div class="empty-t" style="text-align:center;padding:16px;color:var(--ink3)">Stop data unavailable</div>'; }
 }
@@ -2728,7 +2728,8 @@ async function refreshSelectedVehicleDetail({ allowFetch = true } = {}) {
   S.prevStopSeq[S.selectedId] = currSeq;
 
   if (S.followMode) {
-    focusVehicleForFollow(sv);
+    const [displayLon, displayLat] = displayedVehiclePosition(sv);
+    focusVehicleForFollow({ ...sv, lat:displayLat, lon:displayLon }, false);
   }
 }
 
