@@ -774,8 +774,8 @@ function openVehicleNextStop(vehicleId, ev) {
 const ADELAIDE = [-34.928, 138.600];
 const MAP_TILES = {
   day: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    options: { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    options: { maxZoom:19, maxNativeZoom:19, attribution:'Tiles &copy; Esri' }
   },
   night: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -796,7 +796,15 @@ let baseTileLayer = null;
 function setBaseTileLayer(theme) {
   if (baseTileLayer) mapCore.removeLayer(baseTileLayer);
   const config = MAP_TILES[theme] || MAP_TILES.day;
-  baseTileLayer = L.tileLayer(config.url, config.options).addTo(mapCore);
+  const layers = [L.tileLayer(config.url, config.options)];
+  if (config.labelsUrl) {
+    layers.push(L.tileLayer(config.labelsUrl, {
+      maxZoom:config.options.maxZoom,
+      maxNativeZoom:config.options.maxNativeZoom,
+      attribution:''
+    }));
+  }
+  baseTileLayer = L.layerGroup(layers).addTo(mapCore);
 }
 setBaseTileLayer(S.theme);
 

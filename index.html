@@ -6,8 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f2f4fb" id="theme-color-meta">
-<title>Where Is Metro? | Live Adelaide Metro Tracker</title>
-<meta name="description" content="Track Adelaide Metro buses, trains and trams live. View vehicle locations, upcoming departures, service alerts, nearby stops and journey options.">
+<title>Adelaide Metro Live Tracker &amp; News | Where Is Metro?</title>
+<meta name="description" content="Track Adelaide Metro buses, trains and trams live. Find vehicle locations, departures, service alerts, Adelaide Metro news and SA transport links.">
+<meta name="keywords" content="Adelaide Metro, Adelaide Metro live tracker, Adelaide Metro news, Adelaide buses, Adelaide trains, Adelaide trams, Department for Infrastructure and Transport">
 <meta name="application-name" content="Where Is Metro?">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
 <link rel="canonical" href="https://www.whereismetro.com/">
@@ -15,22 +16,22 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Where Is Metro?">
-<meta property="og:title" content="Where Is Metro? | Live Adelaide Metro Tracker">
-<meta property="og:description" content="Track Adelaide Metro buses, trains and trams live, with departures, service alerts, nearby stops and journey options.">
+<meta property="og:title" content="Adelaide Metro Live Tracker | Where Is Metro?">
+<meta property="og:description" content="Live Adelaide Metro buses, trains and trams, plus service alerts and links to official news and South Australian transport resources.">
 <meta property="og:url" content="https://www.whereismetro.com/">
 <meta property="og:locale" content="en_AU">
 
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Where Is Metro? | Live Adelaide Metro Tracker">
-<meta name="twitter:description" content="Live locations and service information for Adelaide Metro buses, trains and trams.">
+<meta name="twitter:title" content="Adelaide Metro Live Tracker | Where Is Metro?">
+<meta name="twitter:description" content="Track Adelaide Metro live and find official service news and South Australian transport resources.">
 
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "WebApplication",
+  "@type": ["WebApplication", "WebSite"],
   "name": "Where Is Metro?",
   "url": "https://www.whereismetro.com/",
-  "description": "A live Adelaide Metro tracker for buses, trains and trams, including departures, alerts, nearby stops and journey options.",
+  "description": "A live Adelaide Metro tracker for buses, trains and trams, including departures, alerts, nearby stops, journey options and links to official news and transport resources.",
   "applicationCategory": "TravelApplication",
   "operatingSystem": "Any",
   "browserRequirements": "Requires JavaScript",
@@ -40,6 +41,18 @@
     "@type": "AdministrativeArea",
     "name": "Adelaide, South Australia"
   },
+  "about": [
+    {
+      "@type": "Thing",
+      "name": "Adelaide Metro",
+      "sameAs": "https://www.adelaidemetro.com.au/"
+    },
+    {
+      "@type": "GovernmentOrganization",
+      "name": "Department for Infrastructure and Transport, South Australia",
+      "url": "https://dit.sa.gov.au/"
+    }
+  ],
   "featureList": [
     "Live Adelaide Metro vehicle locations",
     "Real-time departures and trip updates",
@@ -53,9 +66,17 @@
 
 <link rel="stylesheet" href="/static/leaflet.css?v=1.9.4">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/app.css?v=leaflet-zoom-1">
+<link rel="stylesheet" href="/static/app.css?v=seo-1">
 </head>
 <body>
+<noscript>
+  <main class="noscript-info">
+    <h1>Adelaide Metro live tracker and travel information</h1>
+    <p>Where Is Metro? tracks Adelaide Metro buses, trains and trams. JavaScript is required for the live map, departures and service alerts.</p>
+    <p>For official network information, visit <a href="https://www.adelaidemetro.com.au/about-us/news">Adelaide Metro news</a> or South Australia's <a href="https://dit.sa.gov.au/">Department for Infrastructure and Transport</a>.</p>
+    <p>Where Is Metro? is an independent live tracker and is not the official Adelaide Metro or Department for Infrastructure and Transport website.</p>
+  </main>
+</noscript>
 <div id="loading-screen">
   <div class="ld-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 3"/><path d="M6 12H4M20 12h-2"/></svg></div>
   <div class="ld-title">Adelaide Metro</div>
@@ -172,6 +193,6 @@
 </div>
 
 <script src="/static/leaflet.js?v=1.9.4"></script>
-<script src="/static/app.js?v=cbd-start-1" defer></script>
+<script src="/static/app.js?v=street-hierarchy-1" defer></script>
 </body>
 </html>

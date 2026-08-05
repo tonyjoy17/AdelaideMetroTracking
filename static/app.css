@@ -51,6 +51,8 @@ body.theme-night::before{background:radial-gradient(circle, rgba(2,136,209,.15),
 body.theme-night::after{background:radial-gradient(circle, rgba(229,57,53,.15), transparent 72%)}
 button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;outline:none;-webkit-tap-highlight-color:transparent}
 input{border:none;background:none;font:inherit;color:inherit;outline:none}
+.noscript-info{max-width:760px;margin:110px auto 40px;padding:28px;border-radius:20px;background:#fff;box-shadow:var(--sh2);line-height:1.6}
+.noscript-info h1{font-size:24px;margin-bottom:12px}.noscript-info p+p{margin-top:12px}.noscript-info a{color:#0369a1;text-decoration:underline}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
 .leaflet-control-attribution{font-size:9px!important}
