@@ -57,7 +57,7 @@ input{border:none;background:none;font:inherit;color:inherit;outline:none}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
 .leaflet-control-attribution{font-size:9px!important}
 .leaflet-container{font-family:Inter,sans-serif;background:var(--bg)}
-.leaflet-tile-pane{filter:grayscale(.82) saturate(.45) brightness(1.02) contrast(.96)}
+.leaflet-tile-pane{filter:grayscale(1) brightness(.98) contrast(1.03)}
 body.theme-night .leaflet-tile-pane{filter:none}
 .vehicle-map-label{
   margin:0!important;padding:0!important;border:0!important;background:transparent!important;

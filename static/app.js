@@ -787,7 +787,7 @@ const MAP_TILES = {
 const leafletCanvas = L.canvas({ padding:0.35, tolerance:8 });
 const mapCore = L.map('map', {
   center:ADELAIDE,
-  zoom:14,
+  zoom:15,
   preferCanvas:true,
   renderer:leafletCanvas,
   zoomControl:false,
