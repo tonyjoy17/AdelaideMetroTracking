@@ -18,6 +18,7 @@ const S = {
   stopShowAll:false,
   stopBoardServices:[],
   stopBoardRequestId:0,
+  mobileVehicleLimit:80,
   etaTimer:null,          // setInterval for countdown ticking
   etaTargets:{},          // key->{el, isoTime} for live ticking
   favs: (() => { try { return JSON.parse(localStorage.getItem('adl_favs3')||'[]'); } catch { return []; }})(),
@@ -27,6 +28,7 @@ const saveTheme = () => localStorage.setItem('adl_theme', S.theme);
 const htmlCache = new WeakMap();
 const VEHICLE_POLL_MS = 30000;
 const ALERT_POLL_MS = 5 * 60_000;
+const MOBILE_VEHICLE_PAGE_SIZE = 80;
 const SELECTED_DETAIL_REFRESH_MS = 10_000;
 const SHAPE_CACHE_LIMIT = 24;
 const TRIP_CACHE_LIMIT = 80;
@@ -1663,6 +1665,7 @@ function getFiltered() {
 
 function setTab(t, el) {
   resetSidebarInteractionFreeze();
+  S.mobileVehicleLimit=MOBILE_VEHICLE_PAGE_SIZE;
   S.tab=t; S.filterRoute=null;
   S.mode = t==='alerts'?'alerts':'list';
   S.selectedStop=null;
@@ -1727,7 +1730,7 @@ function vehicleGroupsFor(list) {
   return groups;
 }
 
-function renderVehicleGroupCards(scroll, groups, extraHtml='') {
+function renderVehicleGroupCards(scroll, groups, extraHtml='', trailingHtml='') {
   const tc={tram:'var(--tram)',train:'var(--train)',bus:'var(--bus)'};
   const tpb={tram:'var(--tram-lt)',train:'var(--train-lt)',bus:'var(--bus-lt)'};
   const tl={tram:'Trams',train:'Trains',bus:'Buses'};
@@ -1772,6 +1775,7 @@ function renderVehicleGroupCards(scroll, groups, extraHtml='') {
       </div>`;
     });
   });
+  html += trailingHtml;
   const updated = setHtmlIfChanged(scroll, html);
   if (!updated) return;
   // Scroll to selected
@@ -1798,7 +1802,17 @@ function renderVList(scroll) {
       </div>
     </div>`;
   }
-  renderVehicleGroupCards(scroll, vehicleGroupsFor(fv), extraHtml);
+  const visibleVehicles = isMobile() ? fv.slice(0, S.mobileVehicleLimit) : fv;
+  const remaining = fv.length - visibleVehicles.length;
+  const trailingHtml = remaining > 0
+    ? `<div class="vehicle-list-more"><div>Showing ${visibleVehicles.length} of ${fv.length} vehicles</div><button class="filter-btn" onclick="showMoreMobileVehicles()">Show ${Math.min(MOBILE_VEHICLE_PAGE_SIZE, remaining)} more</button></div>`
+    : '';
+  renderVehicleGroupCards(scroll, vehicleGroupsFor(visibleVehicles), extraHtml, trailingHtml);
+}
+
+function showMoreMobileVehicles() {
+  S.mobileVehicleLimit += MOBILE_VEHICLE_PAGE_SIZE;
+  renderSidebar();
 }
 
 function renderFavorites(scroll) {

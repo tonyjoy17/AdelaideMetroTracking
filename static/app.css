@@ -378,6 +378,7 @@ body.theme-night .leaflet-control-attribution,body.theme-night .leaflet-control-
 .filter-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .filter-btn{padding:5px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--ink2);transition:background .15s,border-color .15s,color .15s}
 .filter-btn:hover{background:var(--surface3);border-color:var(--line2)}
+.vehicle-list-more{margin:14px 12px 18px;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--surface2);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;color:var(--ink3)}
 
 @media(min-width:681px){
   #topbar,
@@ -488,6 +489,7 @@ body.theme-night .af-text{color:#e2e8f0}
    surfaces are composited over the live map. Keep mobile panels opaque and
    on the normal compositor path. */
 @media (max-width:680px), (pointer:coarse) {
+  .leaflet-tile-pane{filter:none !important;}
   #topbar,
   #tabbar,
   #sidebar,
