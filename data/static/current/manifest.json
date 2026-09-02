@@ -1,12 +1,12 @@
 {
-  "version": "1695",
-  "generatedAt": "2026-08-28T23:38:41.876Z",
+  "version": "1697",
+  "generatedAt": "2026-09-02T18:00:07.129Z",
   "counts": {
     "routes": 731,
-    "trips": 26142,
-    "stops": 9173,
-    "stopTimesTrips": 26142,
-    "shapes": 1939,
+    "trips": 26107,
+    "stops": 9174,
+    "stopTimesTrips": 26107,
+    "shapes": 1941,
     "shapeShards": 32
   }
 }
